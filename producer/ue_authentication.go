@@ -33,7 +33,7 @@ const AV_GENERATION_PROBLEM_ERROR = "AV_GENERATION_PROBLEM"
 
 // Generates a random int between 0 and 255
 func GenerateRandomNumber() (uint8, error) {
-	max := big.NewInt(256)
+	maximum := big.NewInt(256)
 	randomNumber, err := rand.Int(rand.Reader, max)
 	if err != nil {
 		return 0, err
