@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/omec-project/ausf/context"
+	"github.com/omec-project/ausf/metrics"
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli"
 
@@ -28,9 +29,9 @@ import (
 	"github.com/omec-project/ausf/util"
 	"github.com/omec-project/config5g/proto/client"
 	protos "github.com/omec-project/config5g/proto/sdcoreConfig"
-	"github.com/omec-project/http2_util"
-	"github.com/omec-project/logger_util"
 	"github.com/omec-project/openapi/models"
+	"github.com/omec-project/util/http2_util"
+	logger_util "github.com/omec-project/util/logger"
 	"github.com/omec-project/util/path_util"
 	pathUtilLogger "github.com/omec-project/util/path_util/logger"
 )
@@ -226,6 +227,8 @@ func (ausf *AUSF) Start() {
 
 	router := logger_util.NewGinWithLogrus(logger.GinLog)
 	ueauthentication.AddService(router)
+
+	go metrics.InitMetrics()
 
 	ausf_context.Init()
 	self := ausf_context.GetSelf()
