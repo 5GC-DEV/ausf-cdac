@@ -139,6 +139,12 @@ func UeAuthPostRequestProcedure(updateAuthenticationInfo models.AuthenticationIn
 	udmUrl := getUdmUrl(self.NrfUri)
 	client := createClientToUdmUeau(udmUrl)
 	authInfoResult, rsp, err := client.GenerateAuthDataApi.GenerateAuthData(context.Background(), supiOrSuci, authInfoReq)
+	logger.UeAuthPostLog.Info("---authresult supi:", authInfoResult.Supi)
+	logger.UeAuthPostLog.Info("---authresult AV:", authInfoResult.AuthenticationVector)
+	logger.UeAuthPostLog.Info("---authresult avtype:", authInfoResult.AuthenticationVector.AvType)
+	logger.UeAuthPostLog.Info("---authresult rand:", authInfoResult.AuthenticationVector.Rand)
+	logger.UeAuthPostLog.Info("---authresult Xres:", authInfoResult.AuthenticationVector.Xres)
+
 	if err != nil {
 		logger.UeAuthPostLog.Infoln(err.Error())
 		var problemDetails models.ProblemDetails
