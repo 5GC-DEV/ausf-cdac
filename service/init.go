@@ -16,24 +16,24 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/omec-project/ausf/context"
-	"github.com/omec-project/ausf/metrics"
-	"github.com/sirupsen/logrus"
-	"github.com/urfave/cli"
-
+	"github.com/omec-project/ausf/callback"
 	"github.com/omec-project/ausf/consumer"
-	ausf_context "github.com/omec-project/ausf/context"
+	"github.com/omec-project/ausf/context"
 	"github.com/omec-project/ausf/factory"
 	"github.com/omec-project/ausf/logger"
+	"github.com/omec-project/ausf/metrics"
 	"github.com/omec-project/ausf/ueauthentication"
 	"github.com/omec-project/ausf/util"
 	"github.com/omec-project/config5g/proto/client"
 	protos "github.com/omec-project/config5g/proto/sdcoreConfig"
 	"github.com/omec-project/openapi/models"
+	nrfCache "github.com/omec-project/openapi/nrfcache"
 	"github.com/omec-project/util/http2_util"
-	logger_util "github.com/omec-project/util/logger"
+	utilLogger "github.com/omec-project/util/logger"
 	"github.com/omec-project/util/path_util"
-	pathUtilLogger "github.com/omec-project/util/path_util/logger"
+	"github.com/urfave/cli"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 type AUSF struct{}
@@ -63,7 +63,7 @@ var (
 	KeepAliveTimerMutex sync.Mutex
 )
 
-var initLog *logrus.Entry
+var initLog *zap.SugaredLogger
 
 func init() {
 	initLog = logger.InitLog
@@ -108,7 +108,7 @@ func (ausf *AUSF) Initialize(c *cli.Context) error {
 		go ausf.updateConfig(commChannel)
 	} else {
 		go func() {
-			initLog.Infoln("Use helm chart config ")
+			initLog.Infoln("use helm chart config")
 			ConfigPodTrigger <- true
 		}()
 	}
@@ -117,41 +117,24 @@ func (ausf *AUSF) Initialize(c *cli.Context) error {
 
 func (ausf *AUSF) setLogLevel() {
 	if factory.AusfConfig.Logger == nil {
-		initLog.Warnln("AUSF config without log level setting!!!")
+		initLog.Warnln("AUSF config without log level setting")
 		return
 	}
 
 	if factory.AusfConfig.Logger.AUSF != nil {
 		if factory.AusfConfig.Logger.AUSF.DebugLevel != "" {
-			if level, err := logrus.ParseLevel(factory.AusfConfig.Logger.AUSF.DebugLevel); err != nil {
+			if level, err := zapcore.ParseLevel(factory.AusfConfig.Logger.AUSF.DebugLevel); err != nil {
 				initLog.Warnf("AUSF Log level [%s] is invalid, set to [info] level",
 					factory.AusfConfig.Logger.AUSF.DebugLevel)
-				logger.SetLogLevel(logrus.InfoLevel)
+				logger.SetLogLevel(zap.InfoLevel)
 			} else {
 				initLog.Infof("AUSF Log level is set to [%s] level", level)
 				logger.SetLogLevel(level)
 			}
 		} else {
 			initLog.Warnln("AUSF Log level not set. Default set to [info] level")
-			logger.SetLogLevel(logrus.InfoLevel)
+			logger.SetLogLevel(zap.InfoLevel)
 		}
-		logger.SetReportCaller(factory.AusfConfig.Logger.AUSF.ReportCaller)
-	}
-
-	if factory.AusfConfig.Logger.PathUtil != nil {
-		if factory.AusfConfig.Logger.PathUtil.DebugLevel != "" {
-			if level, err := logrus.ParseLevel(factory.AusfConfig.Logger.PathUtil.DebugLevel); err != nil {
-				pathUtilLogger.PathLog.Warnf("PathUtil Log level [%s] is invalid, set to [info] level",
-					factory.AusfConfig.Logger.PathUtil.DebugLevel)
-				pathUtilLogger.SetLogLevel(logrus.InfoLevel)
-			} else {
-				pathUtilLogger.SetLogLevel(level)
-			}
-		} else {
-			pathUtilLogger.PathLog.Warnln("PathUtil Log level not set. Default set to [info] level")
-			pathUtilLogger.SetLogLevel(logrus.InfoLevel)
-		}
-		pathUtilLogger.SetReportCaller(factory.AusfConfig.Logger.PathUtil.ReportCaller)
 	}
 }
 
@@ -170,21 +153,21 @@ func (ausf *AUSF) FilterCli(c *cli.Context) (args []string) {
 
 func (ausf *AUSF) updateConfig(commChannel chan *protos.NetworkSliceResponse) bool {
 	var minConfig bool
-	context := ausf_context.GetSelf()
+	context := context.GetSelf()
 	for rsp := range commChannel {
-		logger.GrpcLog.Infoln("Received updateConfig in the ausf app : ", rsp)
+		logger.GrpcLog.Infoln("received updateConfig in the ausf app:", rsp)
 		for _, ns := range rsp.NetworkSlice {
-			logger.GrpcLog.Infoln("Network Slice Name ", ns.Name)
+			logger.GrpcLog.Infoln("network Slice Name", ns.Name)
 			if ns.Site != nil {
 				temp := models.PlmnId{}
 				var found bool = false
-				logger.GrpcLog.Infoln("Network Slice has site name present ")
+				logger.GrpcLog.Infoln("network slice has site name present")
 				site := ns.Site
-				logger.GrpcLog.Infoln("Site name ", site.SiteName)
+				logger.GrpcLog.Infoln("site name", site.SiteName)
 				if site.Plmn != nil {
 					temp.Mcc = site.Plmn.Mcc
 					temp.Mnc = site.Plmn.Mnc
-					logger.GrpcLog.Infoln("Plmn mcc ", site.Plmn.Mcc)
+					logger.GrpcLog.Infoln("plmn mcc", site.Plmn.Mcc)
 					for _, item := range context.PlmnList {
 						if item.Mcc == temp.Mcc && item.Mnc == temp.Mnc {
 							found = true
@@ -193,10 +176,10 @@ func (ausf *AUSF) updateConfig(commChannel chan *protos.NetworkSliceResponse) bo
 					}
 					if !found {
 						context.PlmnList = append(context.PlmnList, temp)
-						logger.GrpcLog.Infoln("Plmn added in the context", context.PlmnList)
+						logger.GrpcLog.Infoln("plmn added in the context", context.PlmnList)
 					}
 				} else {
-					logger.GrpcLog.Infoln("Plmn not present in the message ")
+					logger.GrpcLog.Infoln("plmn not present in the message ")
 				}
 			}
 		}
@@ -205,17 +188,17 @@ func (ausf *AUSF) updateConfig(commChannel chan *protos.NetworkSliceResponse) bo
 			if len(context.PlmnList) > 0 {
 				minConfig = true
 				ConfigPodTrigger <- true
-				logger.GrpcLog.Infoln("Send config trigger to main routine first time config")
+				logger.GrpcLog.Infoln("send config trigger to main routine first time config")
 			}
 		} else {
 			// all slices deleted
 			if len(context.PlmnList) == 0 {
 				minConfig = false
 				ConfigPodTrigger <- false
-				logger.GrpcLog.Infoln("Send config trigger to main routine config deleted")
+				logger.GrpcLog.Infoln("send config trigger to main routine config deleted")
 			} else {
 				ConfigPodTrigger <- true
-				logger.GrpcLog.Infoln("Send config trigger to main routine config updated")
+				logger.GrpcLog.Infoln("send config trigger to main routine config updated")
 			}
 		}
 	}
@@ -223,21 +206,27 @@ func (ausf *AUSF) updateConfig(commChannel chan *protos.NetworkSliceResponse) bo
 }
 
 func (ausf *AUSF) Start() {
-	initLog.Infoln("Server started")
+	initLog.Infoln("server started")
 
-	router := logger_util.NewGinWithLogrus(logger.GinLog)
+	router := utilLogger.NewGinWithZap(logger.GinLog)
 	ueauthentication.AddService(router)
+	callback.AddService(router)
 
 	go metrics.InitMetrics()
 
-	ausf_context.Init()
-	self := ausf_context.GetSelf()
-	// Register to NRF
-	go ausf.registerNF()
+	context.Init()
+	self := context.GetSelf()
 
 	ausfLogPath := util.AusfLogPath
 
 	addr := fmt.Sprintf("%s:%d", self.BindingIPv4, self.SBIPort)
+
+	if self.EnableNrfCaching {
+		initLog.Infoln("enable NRF caching feature")
+		nrfCache.InitNrfCaching(self.NrfCacheEvictionInterval*time.Second, consumer.SendNfDiscoveryToNrf)
+	}
+	// Register to NRF
+	go ausf.RegisterNF()
 
 	signalChannel := make(chan os.Signal, 1)
 	signal.Notify(signalChannel, os.Interrupt, syscall.SIGTERM)
@@ -249,19 +238,19 @@ func (ausf *AUSF) Start() {
 
 	server, err := http2_util.NewServer(addr, ausfLogPath, router)
 	if server == nil {
-		initLog.Errorf("Initialize HTTP server failed: %+v", err)
+		initLog.Errorf("initialize HTTP server failed: %v", err)
 		return
 	}
 
 	if err != nil {
-		initLog.Warnf("Initialize HTTP server: +%v", err)
+		initLog.Warnf("initialize HTTP server: %v", err)
 	}
 
 	serverScheme := factory.AusfConfig.Configuration.Sbi.Scheme
 	if serverScheme == "http" {
 		err = server.ListenAndServe()
 	} else if serverScheme == "https" {
-		err = server.ListenAndServeTLS(util.AusfPemPath, util.AusfKeyPath)
+		err = server.ListenAndServeTLS(self.PEM, self.Key)
 	}
 
 	if err != nil {
@@ -270,9 +259,9 @@ func (ausf *AUSF) Start() {
 }
 
 func (ausf *AUSF) Exec(c *cli.Context) error {
-	initLog.Traceln("args:", c.String("ausfcfg"))
+	initLog.Debugln("args:", c.String("ausfcfg"))
 	args := ausf.FilterCli(c)
-	initLog.Traceln("filter: ", args)
+	initLog.Debugln("filter:", args)
 	command := exec.Command("./ausf", args...)
 
 	stdout, err := command.StdoutPipe()
@@ -284,7 +273,7 @@ func (ausf *AUSF) Exec(c *cli.Context) error {
 	go func() {
 		in := bufio.NewScanner(stdout)
 		for in.Scan() {
-			fmt.Println(in.Text())
+			initLog.Infoln(in.Text())
 		}
 		wg.Done()
 	}()
@@ -296,7 +285,7 @@ func (ausf *AUSF) Exec(c *cli.Context) error {
 	go func() {
 		in := bufio.NewScanner(stderr)
 		for in.Scan() {
-			fmt.Println(in.Text())
+			initLog.Infoln(in.Text())
 		}
 		wg.Done()
 	}()
@@ -315,18 +304,18 @@ func (ausf *AUSF) Exec(c *cli.Context) error {
 }
 
 func (ausf *AUSF) Terminate() {
-	logger.InitLog.Infof("Terminating AUSF...")
+	logger.InitLog.Infof("terminating AUSF...")
 	// deregister with NRF
 	problemDetails, err := consumer.SendDeregisterNFInstance()
 	if problemDetails != nil {
-		logger.InitLog.Errorf("Deregister NF instance Failed Problem[%+v]", problemDetails)
+		logger.InitLog.Errorf("deregister NF instance Failed Problem[%+v]", problemDetails)
 	} else if err != nil {
-		logger.InitLog.Errorf("Deregister NF instance Error[%+v]", err)
+		logger.InitLog.Errorf("deregister NF instance Error[%+v]", err)
 	} else {
-		logger.InitLog.Infof("Deregister from NRF successfully")
+		logger.InitLog.Infoln("deregister from NRF successfully")
 	}
 
-	logger.InitLog.Infof("AUSF terminated")
+	logger.InitLog.Infoln("AUSF terminated")
 }
 
 func (ausf *AUSF) StartKeepAliveTimer(nfProfile models.NfProfile) {
@@ -336,14 +325,14 @@ func (ausf *AUSF) StartKeepAliveTimer(nfProfile models.NfProfile) {
 	if nfProfile.HeartBeatTimer == 0 {
 		nfProfile.HeartBeatTimer = 60
 	}
-	logger.InitLog.Infof("Started KeepAlive Timer: %v sec", nfProfile.HeartBeatTimer)
+	logger.InitLog.Infof("started KeepAlive Timer: %v sec", nfProfile.HeartBeatTimer)
 	//AfterFunc starts timer and waits for KeepAliveTimer to elapse and then calls ausf.UpdateNF function
 	KeepAliveTimer = time.AfterFunc(time.Duration(nfProfile.HeartBeatTimer)*time.Second, ausf.UpdateNF)
 }
 
 func (ausf *AUSF) StopKeepAliveTimer() {
 	if KeepAliveTimer != nil {
-		logger.InitLog.Infof("Stopped KeepAlive Timer.")
+		logger.InitLog.Infoln("stopped KeepAlive Timer")
 		KeepAliveTimer.Stop()
 		KeepAliveTimer = nil
 	}
@@ -403,27 +392,44 @@ func (ausf *AUSF) UpdateNF() {
 		// use hearbeattimer value with received timer value from NRF
 		heartBeatTimer = nfProfile.HeartBeatTimer
 	}
-	logger.InitLog.Debugf("Restarted KeepAlive Timer: %v sec", heartBeatTimer)
+	logger.InitLog.Debugf("restarted KeepAlive Timer: %v sec", heartBeatTimer)
 	//restart timer with received HeartBeatTimer value
 	KeepAliveTimer = time.AfterFunc(time.Duration(heartBeatTimer)*time.Second, ausf.UpdateNF)
 }
 
-func (ausf *AUSF) registerNF() {
+func (ausf *AUSF) RegisterNF() {
 	for msg := range ConfigPodTrigger {
-		initLog.Infof("Minimum configuration from config pod available %v", msg)
-		self := ausf_context.GetSelf()
-		profile, err := consumer.BuildNFInstance(self)
-		if err != nil {
-			initLog.Error("Build AUSF Profile Error")
-		}
-		var prof models.NfProfile
-		prof, _, self.NfId, err = consumer.SendRegisterNFInstance(self.NrfUri, self.NfId, profile)
-		if err != nil {
-			initLog.Errorf("AUSF register to NRF Error[%s]", err.Error())
+		if msg {
+			initLog.Infof("Minimum configuration from config pod available %v", msg)
+			self := context.GetSelf()
+			profile, err := consumer.BuildNFInstance(self)
+			if err != nil {
+				initLog.Error("Build AUSF Profile Error")
+			}
+			var prof models.NfProfile
+			prof, _, self.NfId, err = consumer.SendRegisterNFInstance(self.NrfUri, self.NfId, profile)
+			if err != nil {
+				initLog.Errorf("AUSF register to NRF Error[%s]", err.Error())
+			} else {
+				//stop keepAliveTimer if its running
+				ausf.StartKeepAliveTimer(prof)
+				logger.CfgLog.Infoln("sent Register NF Instance with updated profile")
+			}
 		} else {
-			//stop keepAliveTimer if its running
-			ausf.StartKeepAliveTimer(prof)
-			logger.CfgLog.Infof("Sent Register NF Instance with updated profile")
+			// stopping keepAlive timer
+			KeepAliveTimerMutex.Lock()
+			ausf.StopKeepAliveTimer()
+			KeepAliveTimerMutex.Unlock()
+			initLog.Infoln("AUSF is not having Minimum Config to Register/Update to NRF")
+			problemDetails, err := consumer.SendDeregisterNFInstance()
+			if problemDetails != nil {
+				initLog.Errorf("AUSF Deregister Instance to NRF failed, Problem: [+%v]", problemDetails)
+			}
+			if err != nil {
+				initLog.Errorf("AUSF Deregister Instance to NRF Error[%s]", err.Error())
+			} else {
+				logger.InitLog.Infoln("deregister from NRF successfully")
+			}
 		}
 	}
 }

@@ -36,19 +36,27 @@ const (
 )
 
 type Configuration struct {
-	Sbi             *Sbi            `yaml:"sbi,omitempty"`
-	ServiceNameList []string        `yaml:"serviceNameList,omitempty"`
-	NrfUri          string          `yaml:"nrfUri,omitempty"`
-	WebuiUri        string          `yaml:"webuiUri"`
-	GroupId         string          `yaml:"groupId,omitempty"`
-	PlmnSupportList []models.PlmnId `yaml:"plmnSupportList,omitempty"`
+	Sbi                      *Sbi            `yaml:"sbi,omitempty"`
+	ServiceNameList          []string        `yaml:"serviceNameList,omitempty"`
+	NrfUri                   string          `yaml:"nrfUri,omitempty"`
+	WebuiUri                 string          `yaml:"webuiUri"`
+	GroupId                  string          `yaml:"groupId,omitempty"`
+	PlmnSupportList          []models.PlmnId `yaml:"plmnSupportList,omitempty"`
+	EnableNrfCaching         bool            `yaml:"enableNrfCaching"`
+	NrfCacheEvictionInterval int             `yaml:"nrfCacheEvictionInterval,omitempty"`
 }
 
 type Sbi struct {
 	Scheme       string `yaml:"scheme"`
+	TLS          *TLS   `yaml:"tls"`
 	RegisterIPv4 string `yaml:"registerIPv4,omitempty"` // IP that is registered at NRF.
 	BindingIPv4  string `yaml:"bindingIPv4,omitempty"`  // IP used to run the server in the node.
 	Port         int    `yaml:"port,omitempty"`
+}
+
+type TLS struct {
+	PEM string `yaml:"pem,omitempty"`
+	Key string `yaml:"key,omitempty"`
 }
 
 type Security struct {
