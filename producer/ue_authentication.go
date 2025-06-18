@@ -142,6 +142,8 @@ func UeAuthPostRequestProcedure(updateAuthenticationInfo models.AuthenticationIn
 
 	udmUrl := GetUdmUrl(self.NrfUri)
 	client := createClientToUdmUeau(udmUrl)
+	logger.UeAuthPostLog.Infof("add supiOrSuci and authInfoReq(%s, %s) to map", supiOrSuci, authInfoReq)
+	logger.UeAuthPostLog.Infof("added authInfoResult(%s) ", authInfoResult)
 	authInfoResult, rsp, err := client.GenerateAuthDataApi.GenerateAuthData(context.Background(), supiOrSuci, authInfoReq)
 	if err != nil {
 		logger.UeAuthPostLog.Infoln(err.Error())
@@ -305,7 +307,6 @@ func UeAuthPostRequestProcedure(updateAuthenticationInfo models.AuthenticationIn
 	responseBody.Links = make(map[string]models.LinksValueSchema)
 	responseBody.Links["link"] = linksValue
 	responseBody.AuthType = authInfoResult.AuthType
-
 	return &responseBody, locationURI, nil
 }
 
