@@ -142,9 +142,7 @@ func UeAuthPostRequestProcedure(updateAuthenticationInfo models.AuthenticationIn
 
 	udmUrl := GetUdmUrl(self.NrfUri)
 	client := createClientToUdmUeau(udmUrl)
-	logger.UeAuthPostLog.Infof("add supiOrSuci and authInfoReq(%s, %s) to map", supiOrSuci, authInfoReq)
 	authInfoResult, rsp, err := client.GenerateAuthDataApi.GenerateAuthData(context.Background(), supiOrSuci, authInfoReq)
-	logger.UeAuthPostLog.Infof("added authInfoResult(%s) ", authInfoResult)
 	if err != nil {
 		logger.UeAuthPostLog.Infoln(err.Error())
 		var problemDetails models.ProblemDetails
@@ -154,7 +152,6 @@ func UeAuthPostRequestProcedure(updateAuthenticationInfo models.AuthenticationIn
 			problemDetails.Cause = UPSTREAM_SERVER_ERROR
 		}
 		problemDetails.Status = http.StatusNotFound
-		logger.UeAuthPostLog.Infoln("=======HTTP Status Code:========= ", problemDetails.Status)
 		return nil, "", &problemDetails
 	}
 	defer func() {
