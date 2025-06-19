@@ -153,7 +153,7 @@ func UeAuthPostRequestProcedure(updateAuthenticationInfo models.AuthenticationIn
 		} else {
 			problemDetails.Cause = UPSTREAM_SERVER_ERROR
 		}
-		problemDetails.Status = http.StatusInternalServerError
+		problemDetails.Status = http.StatusNotFound
 		logger.UeAuthPostLog.Infoln("=======HTTP Status Code:========= ", problemDetails.Status)
 		return nil, "", &problemDetails
 	}
