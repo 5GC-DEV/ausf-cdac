@@ -143,18 +143,6 @@ func UeAuthPostRequestProcedure(updateAuthenticationInfo models.AuthenticationIn
 	udmUrl := GetUdmUrl(self.NrfUri)
 	client := createClientToUdmUeau(udmUrl)
 	authInfoResult, rsp, err := client.GenerateAuthDataApi.GenerateAuthData(context.Background(), supiOrSuci, authInfoReq)
-	// if err != nil {
-	// 	logger.UeAuthPostLog.Infoln(err.Error())
-	// 	var problemDetails models.ProblemDetails
-	// 	if authInfoResult.AuthenticationVector == nil {
-	// 		problemDetails.Cause = AV_GENERATION_PROBLEM_ERROR
-	// 	} else {
-	// 		problemDetails.Cause = UPSTREAM_SERVER_ERROR
-	// 	}
-	// 	problemDetails.Status = http.StatusNotFound
-	// 	return nil, "", &problemDetails
-	// }
-
 	if err != nil {
 		logger.UeAuthPostLog.Infoln(err.Error())
 		var problemDetails models.ProblemDetails
