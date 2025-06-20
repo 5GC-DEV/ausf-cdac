@@ -31,6 +31,7 @@ const UPSTREAM_SERVER_ERROR = "UPSTREAM_SERVER_ERROR"
 const USER_NOT_FOUND_ERROR = "USER_NOT_FOUND"
 const SERVING_NETWORK_NOT_AUTHORIZED_ERROR = "SERVING_NETWORK_NOT_AUTHORIZED"
 const AV_GENERATION_PROBLEM_ERROR = "AV_GENERATION_PROBLEM"
+const AUTHENTICATION_REJECTED = "AUTHENTICATION_REJECTED"
 
 // Generates a random int between 0 and 255
 func GenerateRandomNumber() (uint8, error) {
@@ -146,9 +147,12 @@ func UeAuthPostRequestProcedure(updateAuthenticationInfo models.AuthenticationIn
 	if err != nil {
 		logger.UeAuthPostLog.Infoln(err.Error())
 		var problemDetails models.ProblemDetails
-		if rsp != nil && rsp.StatusCode == http.StatusForbidden {
+		if rsp != nil && rsp.StatusCode == http.StatusNotFound {
 			problemDetails.Status = http.StatusNotFound
 			problemDetails.Cause = USER_NOT_FOUND_ERROR
+		} else if rsp != nil && rsp.StatusCode == http.StatusForbidden {
+			problemDetails.Status = http.StatusForbidden
+			problemDetails.Cause = AUTHENTICATION_REJECTED
 		} else if authInfoResult.AuthenticationVector == nil {
 			problemDetails.Status = http.StatusInternalServerError
 			problemDetails.Cause = AV_GENERATION_PROBLEM_ERROR
