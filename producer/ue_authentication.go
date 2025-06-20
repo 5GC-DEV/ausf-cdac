@@ -143,15 +143,32 @@ func UeAuthPostRequestProcedure(updateAuthenticationInfo models.AuthenticationIn
 	udmUrl := GetUdmUrl(self.NrfUri)
 	client := createClientToUdmUeau(udmUrl)
 	authInfoResult, rsp, err := client.GenerateAuthDataApi.GenerateAuthData(context.Background(), supiOrSuci, authInfoReq)
+	// if err != nil {
+	// 	logger.UeAuthPostLog.Infoln(err.Error())
+	// 	var problemDetails models.ProblemDetails
+	// 	if authInfoResult.AuthenticationVector == nil {
+	// 		problemDetails.Cause = AV_GENERATION_PROBLEM_ERROR
+	// 	} else {
+	// 		problemDetails.Cause = UPSTREAM_SERVER_ERROR
+	// 	}
+	// 	problemDetails.Status = http.StatusNotFound
+	// 	return nil, "", &problemDetails
+	// }
+
 	if err != nil {
 		logger.UeAuthPostLog.Infoln(err.Error())
 		var problemDetails models.ProblemDetails
-		if authInfoResult.AuthenticationVector == nil {
+		if rsp != nil && rsp.StatusCode == http.StatusForbidden {
+			problemDetails.Status = http.StatusNotFound
+			problemDetails.Cause = USER_NOT_FOUND_ERROR
+		} else if authInfoResult.AuthenticationVector == nil {
+			problemDetails.Status = http.StatusInternalServerError
 			problemDetails.Cause = AV_GENERATION_PROBLEM_ERROR
 		} else {
+			problemDetails.Status = http.StatusInternalServerError
 			problemDetails.Cause = UPSTREAM_SERVER_ERROR
 		}
-		problemDetails.Status = http.StatusNotFound
+		problemDetails.Status = http.StatusInternalServerError
 		return nil, "", &problemDetails
 	}
 	defer func() {
