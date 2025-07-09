@@ -31,7 +31,7 @@ import (
 	nrfCache "github.com/omec-project/openapi/nrfcache"
 	"github.com/omec-project/util/http2_util"
 	utilLogger "github.com/omec-project/util/logger"
-	"github.com/urfave/cli"
+	"github.com/urfave/cli/v3"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
@@ -48,7 +48,7 @@ type (
 var config Config
 
 var ausfCLi = []cli.Flag{
-	cli.StringFlag{
+	&cli.StringFlag{
 		Name:     "cfg",
 		Usage:    "ausf config file",
 		Required: true,
@@ -70,7 +70,7 @@ func (*AUSF) GetCliCmd() (flags []cli.Flag) {
 	return ausfCLi
 }
 
-func (ausf *AUSF) Initialize(c *cli.Context) error {
+func (ausf *AUSF) Initialize(c *cli.Command) error {
 	config = Config{
 		cfg: c.String("cfg"),
 	}
@@ -115,7 +115,7 @@ func manageGrpcClient(webuiUri string, ausf *AUSF) {
 	count := 0
 	for {
 		if client != nil {
-			if client.CheckGrpcConnectivity() != "ready" {
+			if client.CheckGrpcConnectivity() != "READY" {
 				time.Sleep(time.Second * 30)
 				count++
 				if count > 5 {
@@ -144,6 +144,8 @@ func manageGrpcClient(webuiUri string, ausf *AUSF) {
 				go ausf.updateConfig(configChannel)
 				logger.InitLog.Infoln("AUSF updateConfig is triggered")
 			}
+
+			time.Sleep(time.Second * 5) // Fixes (avoids) 100% CPU utilization
 		} else {
 			client, err = grpcClient.ConnectToConfigServer(webuiUri)
 			stream = nil
@@ -180,9 +182,9 @@ func (ausf *AUSF) setLogLevel() {
 	}
 }
 
-func (ausf *AUSF) FilterCli(c *cli.Context) (args []string) {
+func (ausf *AUSF) FilterCli(c *cli.Command) (args []string) {
 	for _, flag := range ausf.GetCliCmd() {
-		name := flag.GetName()
+		name := flag.Names()[0]
 		value := fmt.Sprint(c.Generic(name))
 		if value == "" {
 			continue
@@ -202,7 +204,7 @@ func (ausf *AUSF) updateConfig(commChannel chan *protos.NetworkSliceResponse) bo
 			logger.GrpcLog.Infoln("network Slice Name", ns.Name)
 			if ns.Site != nil {
 				temp := models.PlmnId{}
-				var found bool = false
+				found := false
 				logger.GrpcLog.Infoln("network slice has site name present")
 				site := ns.Site
 				logger.GrpcLog.Infoln("site name", site.SiteName)
@@ -288,10 +290,14 @@ func (ausf *AUSF) Start() {
 	}
 
 	serverScheme := factory.AusfConfig.Configuration.Sbi.Scheme
-	if serverScheme == "http" {
+	switch serverScheme {
+	case "http":
 		err = server.ListenAndServe()
-	} else if serverScheme == "https" {
+	case "https":
 		err = server.ListenAndServeTLS(self.PEM, self.Key)
+	default:
+		logger.InitLog.Fatalf("HTTP server setup failed: invalid server scheme %+v", serverScheme)
+		return
 	}
 
 	if err != nil {
@@ -299,7 +305,7 @@ func (ausf *AUSF) Start() {
 	}
 }
 
-func (ausf *AUSF) Exec(c *cli.Context) error {
+func (ausf *AUSF) Exec(c *cli.Command) error {
 	logger.InitLog.Debugln("args:", c.String("cfg"))
 	args := ausf.FilterCli(c)
 	logger.InitLog.Debugln("filter:", args)
@@ -367,7 +373,7 @@ func (ausf *AUSF) StartKeepAliveTimer(nfProfile models.NfProfile) {
 		nfProfile.HeartBeatTimer = 60
 	}
 	logger.InitLog.Infof("started KeepAlive Timer: %v sec", nfProfile.HeartBeatTimer)
-	//AfterFunc starts timer and waits for KeepAliveTimer to elapse and then calls ausf.UpdateNF function
+	// AfterFunc starts timer and waits for KeepAliveTimer to elapse and then calls ausf.UpdateNF function
 	KeepAliveTimer = time.AfterFunc(time.Duration(nfProfile.HeartBeatTimer)*time.Second, ausf.UpdateNF)
 }
 
@@ -387,7 +393,7 @@ func (ausf *AUSF) BuildAndSendRegisterNFInstance() (models.NfProfile, error) {
 		return profile, err
 	}
 	logger.InitLog.Infof("AUSF Profile Registering to NRF: %v", profile)
-	//Indefinite attempt to register until success
+	// Indefinite attempt to register until success
 	profile, _, self.NfId, err = consumer.SendRegisterNFInstance(self.NrfUri, self.NfId, profile)
 	return profile, err
 }
@@ -400,7 +406,7 @@ func (ausf *AUSF) UpdateNF() {
 		logger.InitLog.Warnln("KeepAlive timer has been stopped")
 		return
 	}
-	//setting default value 30 sec
+	// setting default value 30 sec
 	var heartBeatTimer int32 = 60
 	pitem := models.PatchItem{
 		Op:    "replace",
@@ -412,10 +418,10 @@ func (ausf *AUSF) UpdateNF() {
 	nfProfile, problemDetails, err := consumer.SendUpdateNFInstance(patchItem)
 	if problemDetails != nil {
 		logger.InitLog.Errorf("AUSF update to NRF ProblemDetails[%v]", problemDetails)
-		//5xx response from NRF, 404 Not Found, 400 Bad Request
+		// 5xx response from NRF, 404 Not Found, 400 Bad Request
 		if (problemDetails.Status/100) == 5 ||
 			problemDetails.Status == 404 || problemDetails.Status == 400 {
-			//register with NRF full profile
+			// register with NRF full profile
 			nfProfile, err = ausf.BuildAndSendRegisterNFInstance()
 			if err != nil {
 				logger.InitLog.Errorf("AUSF register to NRF Error[%s]", err.Error())
@@ -434,7 +440,7 @@ func (ausf *AUSF) UpdateNF() {
 		heartBeatTimer = nfProfile.HeartBeatTimer
 	}
 	logger.InitLog.Debugf("restarted KeepAlive Timer: %v sec", heartBeatTimer)
-	//restart timer with received HeartBeatTimer value
+	// restart timer with received HeartBeatTimer value
 	KeepAliveTimer = time.AfterFunc(time.Duration(heartBeatTimer)*time.Second, ausf.UpdateNF)
 }
 
@@ -452,7 +458,7 @@ func (ausf *AUSF) RegisterNF() {
 			if err != nil {
 				logger.InitLog.Errorf("AUSF register to NRF Error[%s]", err.Error())
 			} else {
-				//stop keepAliveTimer if its running
+				// stop keepAliveTimer if its running
 				ausf.StartKeepAliveTimer(prof)
 				logger.CfgLog.Infoln("sent Register NF Instance with updated profile")
 			}
