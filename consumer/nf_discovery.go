@@ -26,7 +26,8 @@ var (
 )
 
 var SendSearchNFInstances = func(nrfUri string, targetNfType, requestNfType models.NfType,
-	param *Nnrf_NFDiscovery.SearchNFInstancesParamOpts) (models.SearchResult, error) {
+	param *Nnrf_NFDiscovery.SearchNFInstancesParamOpts,
+) (models.SearchResult, error) {
 	if ausfContext.GetSelf().EnableNrfCaching {
 		return NRFCacheSearchNFInstances(nrfUri, targetNfType, requestNfType, param)
 	} else {
@@ -35,7 +36,8 @@ var SendSearchNFInstances = func(nrfUri string, targetNfType, requestNfType mode
 }
 
 var SendNfDiscoveryToNrf = func(nrfUri string, targetNfType, requestNfType models.NfType,
-	param *Nnrf_NFDiscovery.SearchNFInstancesParamOpts) (models.SearchResult, error) {
+	param *Nnrf_NFDiscovery.SearchNFInstancesParamOpts,
+) (models.SearchResult, error) {
 	// Set client and set url
 	configuration := Nnrf_NFDiscovery.NewConfiguration()
 	configuration.SetBasePath(nrfUri)
