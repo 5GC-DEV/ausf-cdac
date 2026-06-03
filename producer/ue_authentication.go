@@ -215,7 +215,7 @@ func UeAuthPostRequestProcedure(updateAuthenticationInfo models.AuthenticationIn
 		eapPkt.Code = radius.EapCode(1)
 		eapPkt.Type = radius.EapType(50) // according to RFC5448 6.1
 
-		atRand, atAutn, atKdf, atKdfInput, atMAC, dataArrayBeforeMAC := buildEapAttributes(RAND, AUTN, snName)
+		atRand, atAutn, atKdf, atKdfInput, dataArrayBeforeMAC := buildEapAttributes(RAND, AUTN, snName)
 		eapPkt.Data = []byte(dataArrayBeforeMAC)
 		encodedPktBeforeMAC := eapPkt.Encode()
 
@@ -229,7 +229,7 @@ func UeAuthPostRequestProcedure(updateAuthenticationInfo models.AuthenticationIn
 		}
 		wholeAtMAC := append(atMACfirstRow, MACvalue...)
 
-		atMAC = string(wholeAtMAC)
+		atMAC := string(wholeAtMAC)
 		dataArrayAfterMAC := atRand + atAutn + atMAC + atKdf + atKdfInput
 
 		eapPkt.Data = []byte(dataArrayAfterMAC)
@@ -325,7 +325,7 @@ func buildEapAttributes(
 	randValue string,
 	autn string,
 	snName string,
-) (string, string, string, string, string, string) {
+) (string, string, string, string, string) {
 	var atRand, atAutn, atKdf, atKdfInput, atMAC string
 	if atRandTmp, err := EapEncodeAttribute("AT_RAND", randValue); err != nil {
 		logger.Auth5gAkaComfirmLog.Warnf("EAP encode RAND failed: %+v", err)
@@ -354,7 +354,7 @@ func buildEapAttributes(
 	}
 
 	dataArrayBeforeMAC := atRand + atAutn + atMAC + atKdf + atKdfInput
-	return atRand, atAutn, atKdf, atKdfInput, atMAC, dataArrayBeforeMAC
+	return atRand, atAutn, atKdf, atKdfInput, dataArrayBeforeMAC
 }
 
 // func Auth5gAkaComfirmRequestProcedure(updateConfirmationData models.ConfirmationData,
