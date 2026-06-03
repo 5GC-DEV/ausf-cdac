@@ -230,7 +230,6 @@ func (ausf *AUSF) updateConfig(commChannel chan *protos.NetworkSliceResponse) bo
 		logger.GrpcLog.Infoln("received updateConfig in the ausf app:", rsp)
 		ausf.processNetworkSlices(rsp, context)
 		minConfig = ausf.handleConfigTrigger(minConfig, context)
-
 	}
 	return true
 }
