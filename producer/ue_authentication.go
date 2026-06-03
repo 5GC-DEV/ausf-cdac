@@ -149,21 +149,7 @@ func UeAuthPostRequestProcedure(updateAuthenticationInfo models.AuthenticationIn
 	authInfoResult, rsp, err := client.GenerateAuthDataApi.GenerateAuthData(context.Background(), supiOrSuci, authInfoReq)
 	if err != nil {
 		logger.UeAuthPostLog.Infoln(err.Error())
-		var problemDetails models.ProblemDetails
-		if rsp != nil && rsp.StatusCode == http.StatusNotFound {
-			problemDetails.Status = http.StatusNotFound
-			problemDetails.Cause = USER_NOT_FOUND_ERROR
-		} else if rsp != nil && rsp.StatusCode == http.StatusForbidden {
-			problemDetails.Status = http.StatusForbidden
-			problemDetails.Cause = AUTHENTICATION_REJECTED
-		} else if authInfoResult.AuthenticationVector == nil {
-			problemDetails.Status = http.StatusInternalServerError
-			problemDetails.Cause = AV_GENERATION_PROBLEM_ERROR
-		} else {
-			problemDetails.Status = http.StatusInternalServerError
-			problemDetails.Cause = UPSTREAM_SERVER_ERROR
-		}
-		return nil, "", &problemDetails
+		return nil, "", buildAuthInfoProblemDetails(authInfoResult, rsp)
 	}
 	defer func() {
 		if rspCloseErr := rsp.Body.Close(); rspCloseErr != nil {
@@ -189,33 +175,11 @@ func UeAuthPostRequestProcedure(updateAuthenticationInfo models.AuthenticationIn
 		putLink += "/5g-aka-confirmation"
 
 		// Derive HXRES* from XRES*
-		concat := authInfoResult.AuthenticationVector.Rand + authInfoResult.AuthenticationVector.XresStar
-		var hxresStarBytes []byte
-		if bytes, err := hex.DecodeString(concat); err != nil {
-			logger.Auth5gAkaComfirmLog.Warnf("decode error: %+v", err)
-		} else {
-			hxresStarBytes = bytes
-		}
-		hxresStarAll := sha256.Sum256(hxresStarBytes)
-		hxresStar := hex.EncodeToString(hxresStarAll[16:]) // last 128 bits
-		logger.Auth5gAkaComfirmLog.Infof("XresStar = %x", authInfoResult.AuthenticationVector.XresStar)
+		hxresStar, kseaf := derive5GAkaParams(authInfoResult, snName)
 
-		// Derive Kseaf from Kausf
-		Kausf := authInfoResult.AuthenticationVector.Kausf
-		var KausfDecode []byte
-		if ausfDecode, err := hex.DecodeString(Kausf); err != nil {
-			logger.Auth5gAkaComfirmLog.Warnf("AUSF decode failed: %+v", err)
-		} else {
-			KausfDecode = ausfDecode
-		}
-		P0 := []byte(snName)
-		Kseaf, err := ueauth.GetKDFValue(KausfDecode, ueauth.FC_FOR_KSEAF_DERIVATION, P0, ueauth.KDFLen(P0))
-		if err != nil {
-			logger.Auth5gAkaComfirmLog.Error(err)
-		}
 		ausfUeContext.XresStar = authInfoResult.AuthenticationVector.XresStar
-		ausfUeContext.Kausf = Kausf
-		ausfUeContext.Kseaf = hex.EncodeToString(Kseaf)
+		ausfUeContext.Kausf = authInfoResult.AuthenticationVector.Kausf
+		ausfUeContext.Kseaf = kseaf
 		ausfUeContext.Rand = authInfoResult.AuthenticationVector.Rand
 
 		var av5gAka models.Av5gAka
@@ -243,55 +207,15 @@ func UeAuthPostRequestProcedure(updateAuthenticationInfo models.AuthenticationIn
 		ausfUeContext.K_aut = K_aut
 		Kausf := EMSK[0:32]
 		ausfUeContext.Kausf = Kausf
-		var KausfDecode []byte
-		if ausfDecode, err := hex.DecodeString(Kausf); err != nil {
-			logger.Auth5gAkaComfirmLog.Warnf("AUSF decode failed: %+v", err)
-		} else {
-			KausfDecode = ausfDecode
-		}
-		P0 := []byte(snName)
-		Kseaf, err := ueauth.GetKDFValue(KausfDecode, ueauth.FC_FOR_KSEAF_DERIVATION, P0, ueauth.KDFLen(P0))
-		if err != nil {
-			logger.Auth5gAkaComfirmLog.Error(err)
-		}
-		ausfUeContext.Kseaf = hex.EncodeToString(Kseaf)
 
+		kseaf, randIdentifier := prepareEapAkaPrimeData(Kausf, snName)
+		ausfUeContext.Kseaf = kseaf
 		var eapPkt radius.EapPacket
-		randIdentifier, err := GenerateRandomNumber()
-		if err != nil {
-			logger.Auth5gAkaComfirmLog.Warnf("generate random number failed: %+v", err)
-		}
 		eapPkt.Identifier = randIdentifier
 		eapPkt.Code = radius.EapCode(1)
 		eapPkt.Type = radius.EapType(50) // according to RFC5448 6.1
-		var atRand, atAutn, atKdf, atKdfInput, atMAC string
-		if atRandTmp, err := EapEncodeAttribute("AT_RAND", RAND); err != nil {
-			logger.Auth5gAkaComfirmLog.Warnf("EAP encode RAND failed: %+v", err)
-		} else {
-			atRand = atRandTmp
-		}
-		if atAutnTmp, err := EapEncodeAttribute("AT_AUTN", AUTN); err != nil {
-			logger.Auth5gAkaComfirmLog.Warnf("EAP encode AUTN failed: %+v", err)
-		} else {
-			atAutn = atAutnTmp
-		}
-		if atKdfTmp, err := EapEncodeAttribute("AT_KDF", snName); err != nil {
-			logger.Auth5gAkaComfirmLog.Warnf("EAP encode KDF failed: %+v", err)
-		} else {
-			atKdf = atKdfTmp
-		}
-		if atKdfInputTmp, err := EapEncodeAttribute("AT_KDF_INPUT", snName); err != nil {
-			logger.Auth5gAkaComfirmLog.Warnf("EAP encode KDF failed: %+v", err)
-		} else {
-			atKdfInput = atKdfInputTmp
-		}
-		if atMACTmp, err := EapEncodeAttribute("AT_MAC", ""); err != nil {
-			logger.Auth5gAkaComfirmLog.Warnf("EAP encode MAC failed: %+v", err)
-		} else {
-			atMAC = atMACTmp
-		}
 
-		dataArrayBeforeMAC := atRand + atAutn + atMAC + atKdf + atKdfInput
+		atRand, atAutn, atKdf, atKdfInput, atMAC, dataArrayBeforeMAC := buildEapAttributes(RAND, AUTN, snName)
 		eapPkt.Data = []byte(dataArrayBeforeMAC)
 		encodedPktBeforeMAC := eapPkt.Encode()
 
@@ -319,6 +243,118 @@ func UeAuthPostRequestProcedure(updateAuthenticationInfo models.AuthenticationIn
 	responseBody.AuthType = authInfoResult.AuthType
 
 	return &responseBody, locationURI, nil
+}
+
+func buildAuthInfoProblemDetails(
+	authInfoResult models.AuthenticationInfoResult,
+	rsp *http.Response,
+) *models.ProblemDetails {
+	var problemDetails models.ProblemDetails
+
+	if rsp != nil && rsp.StatusCode == http.StatusNotFound {
+		problemDetails.Status = http.StatusNotFound
+		problemDetails.Cause = USER_NOT_FOUND_ERROR
+	} else if rsp != nil && rsp.StatusCode == http.StatusForbidden {
+		problemDetails.Status = http.StatusForbidden
+		problemDetails.Cause = AUTHENTICATION_REJECTED
+	} else if authInfoResult.AuthenticationVector == nil {
+		problemDetails.Status = http.StatusInternalServerError
+		problemDetails.Cause = AV_GENERATION_PROBLEM_ERROR
+	} else {
+		problemDetails.Status = http.StatusInternalServerError
+		problemDetails.Cause = UPSTREAM_SERVER_ERROR
+	}
+
+	return &problemDetails
+}
+
+func derive5GAkaParams(
+	authInfoResult models.AuthenticationInfoResult,
+	snName string,
+) (string, string) {
+	concat := authInfoResult.AuthenticationVector.Rand + authInfoResult.AuthenticationVector.XresStar
+	var hxresStarBytes []byte
+	if bytes, err := hex.DecodeString(concat); err != nil {
+		logger.Auth5gAkaComfirmLog.Warnf("decode error: %+v", err)
+	} else {
+		hxresStarBytes = bytes
+	}
+	hxresStarAll := sha256.Sum256(hxresStarBytes)
+	hxresStar := hex.EncodeToString(hxresStarAll[16:]) // last 128 bits
+	logger.Auth5gAkaComfirmLog.Infof("XresStar = %x", authInfoResult.AuthenticationVector.XresStar)
+
+	// Derive Kseaf from Kausf
+	Kausf := authInfoResult.AuthenticationVector.Kausf
+	var KausfDecode []byte
+	if ausfDecode, err := hex.DecodeString(Kausf); err != nil {
+		logger.Auth5gAkaComfirmLog.Warnf("AUSF decode failed: %+v", err)
+	} else {
+		KausfDecode = ausfDecode
+	}
+	P0 := []byte(snName)
+	Kseaf, err := ueauth.GetKDFValue(KausfDecode, ueauth.FC_FOR_KSEAF_DERIVATION, P0, ueauth.KDFLen(P0))
+	if err != nil {
+		logger.Auth5gAkaComfirmLog.Error(err)
+	}
+	return hxresStar, hex.EncodeToString(Kseaf)
+}
+
+func prepareEapAkaPrimeData(
+	Kausf string,
+	snName string,
+) (string, uint8) {
+	var KausfDecode []byte
+	if ausfDecode, err := hex.DecodeString(Kausf); err != nil {
+		logger.Auth5gAkaComfirmLog.Warnf("AUSF decode failed: %+v", err)
+	} else {
+		KausfDecode = ausfDecode
+	}
+	P0 := []byte(snName)
+	Kseaf, err := ueauth.GetKDFValue(KausfDecode, ueauth.FC_FOR_KSEAF_DERIVATION, P0, ueauth.KDFLen(P0))
+	if err != nil {
+		logger.Auth5gAkaComfirmLog.Error(err)
+	}
+	randIdentifier, err := GenerateRandomNumber()
+	if err != nil {
+		logger.Auth5gAkaComfirmLog.Warnf("generate random number failed: %+v", err)
+	}
+	return hex.EncodeToString(Kseaf), randIdentifier
+}
+
+func buildEapAttributes(
+	randValue string,
+	autn string,
+	snName string,
+) (string, string, string, string, string, string) {
+	var atRand, atAutn, atKdf, atKdfInput, atMAC string
+	if atRandTmp, err := EapEncodeAttribute("AT_RAND", randValue); err != nil {
+		logger.Auth5gAkaComfirmLog.Warnf("EAP encode RAND failed: %+v", err)
+	} else {
+		atRand = atRandTmp
+	}
+	if atAutnTmp, err := EapEncodeAttribute("AT_AUTN", autn); err != nil {
+		logger.Auth5gAkaComfirmLog.Warnf("EAP encode AUTN failed: %+v", err)
+	} else {
+		atAutn = atAutnTmp
+	}
+	if atKdfTmp, err := EapEncodeAttribute("AT_KDF", snName); err != nil {
+		logger.Auth5gAkaComfirmLog.Warnf("EAP encode KDF failed: %+v", err)
+	} else {
+		atKdf = atKdfTmp
+	}
+	if atKdfInputTmp, err := EapEncodeAttribute("AT_KDF_INPUT", snName); err != nil {
+		logger.Auth5gAkaComfirmLog.Warnf("EAP encode KDF failed: %+v", err)
+	} else {
+		atKdfInput = atKdfInputTmp
+	}
+	if atMACTmp, err := EapEncodeAttribute("AT_MAC", ""); err != nil {
+		logger.Auth5gAkaComfirmLog.Warnf("EAP encode MAC failed: %+v", err)
+	} else {
+		atMAC = atMACTmp
+	}
+
+	dataArrayBeforeMAC := atRand + atAutn + atMAC + atKdf + atKdfInput
+	return atRand, atAutn, atKdf, atKdfInput, atMAC, dataArrayBeforeMAC
 }
 
 // func Auth5gAkaComfirmRequestProcedure(updateConfirmationData models.ConfirmationData,

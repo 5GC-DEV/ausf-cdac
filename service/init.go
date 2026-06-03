@@ -36,6 +36,8 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
+const ausfRegisterNRFError = "AUSF register to NRF Error[%s]"
+
 type AUSF struct{}
 
 type (
@@ -115,36 +117,12 @@ func manageGrpcClient(webuiUri string, ausf *AUSF) {
 	count := 0
 	for {
 		if client != nil {
-			if client.CheckGrpcConnectivity() != "READY" {
-				time.Sleep(time.Second * 30)
-				count++
-				if count > 5 {
-					err = client.GetConfigClientConn().Close()
-					if err != nil {
-						logger.InitLog.Infof("failing ConfigClient is not closed properly: %+v", err)
-					}
-					client = nil
-					count = 0
-				}
-				logger.InitLog.Infoln("checking the connectivity readiness")
-				continue
-			}
-
-			if stream == nil {
-				stream, err = client.SubscribeToConfigServer()
-				if err != nil {
-					logger.InitLog.Infof("failing SubscribeToConfigServer: %+v", err)
-					continue
-				}
-			}
-
-			if configChannel == nil {
-				configChannel = client.PublishOnConfigChange(true, stream)
-				logger.InitLog.Infoln("PublishOnConfigChange is triggered")
-				go ausf.updateConfig(configChannel)
-				logger.InitLog.Infoln("AUSF updateConfig is triggered")
-			}
-
+			client, stream, configChannel, count = ausf.handleConfigClient(
+				client,
+				stream,
+				configChannel,
+				count,
+			)
 			time.Sleep(time.Second * 5) // Fixes (avoids) 100% CPU utilization
 		} else {
 			client, err = grpcClient.ConnectToConfigServer(webuiUri)
@@ -157,6 +135,56 @@ func manageGrpcClient(webuiUri string, ausf *AUSF) {
 			continue
 		}
 	}
+}
+
+func (ausf *AUSF) handleConfigClient(
+	client grpcClient.ConfClient,
+	stream protos.ConfigService_NetworkSliceSubscribeClient,
+	configChannel chan *protos.NetworkSliceResponse,
+	count int,
+) (
+	grpcClient.ConfClient,
+	protos.ConfigService_NetworkSliceSubscribeClient,
+	chan *protos.NetworkSliceResponse,
+	int,
+) {
+	var err error
+	if client.CheckGrpcConnectivity() != "READY" {
+		time.Sleep(time.Second * 30)
+		count++
+		if count > 5 {
+			err = client.GetConfigClientConn().Close()
+			if err != nil {
+				logger.InitLog.Infof(
+					"failing ConfigClient is not closed properly: %+v",
+					err,
+				)
+			}
+
+			client = nil
+			count = 0
+		}
+		logger.InitLog.Infoln("checking the connectivity readiness")
+		return client, stream, configChannel, count
+	}
+	if stream == nil {
+		stream, err = client.SubscribeToConfigServer()
+		if err != nil {
+			logger.InitLog.Infof(
+				"failing SubscribeToConfigServer: %+v",
+				err,
+			)
+			return client, stream, configChannel, count
+		}
+	}
+
+	if configChannel == nil {
+		configChannel = client.PublishOnConfigChange(true, stream)
+		logger.InitLog.Infoln("PublishOnConfigChange is triggered")
+		go ausf.updateConfig(configChannel)
+		logger.InitLog.Infoln("AUSF updateConfig is triggered")
+	}
+	return client, stream, configChannel, count
 }
 
 func (ausf *AUSF) setLogLevel() {
@@ -200,53 +228,69 @@ func (ausf *AUSF) updateConfig(commChannel chan *protos.NetworkSliceResponse) bo
 	context := context.GetSelf()
 	for rsp := range commChannel {
 		logger.GrpcLog.Infoln("received updateConfig in the ausf app:", rsp)
-		for _, ns := range rsp.NetworkSlice {
-			logger.GrpcLog.Infoln("network Slice Name", ns.Name)
-			if ns.Site != nil {
-				temp := models.PlmnId{}
-				found := false
-				logger.GrpcLog.Infoln("network slice has site name present")
-				site := ns.Site
-				logger.GrpcLog.Infoln("site name", site.SiteName)
-				if site.Plmn != nil {
-					temp.Mcc = site.Plmn.Mcc
-					temp.Mnc = site.Plmn.Mnc
-					logger.GrpcLog.Infoln("plmn mcc", site.Plmn.Mcc)
-					for _, item := range context.PlmnList {
-						if item.Mcc == temp.Mcc && item.Mnc == temp.Mnc {
-							found = true
-							break
-						}
-					}
-					if !found {
-						context.PlmnList = append(context.PlmnList, temp)
-						logger.GrpcLog.Infoln("plmn added in the context", context.PlmnList)
-					}
-				} else {
-					logger.GrpcLog.Infoln("plmn not present in the message ")
-				}
-			}
+		ausf.processNetworkSlices(rsp, context)
+		minConfig = ausf.handleConfigTrigger(minConfig, context)
+
+	}
+	return true
+}
+
+func (ausf *AUSF) handleConfigTrigger(
+	minConfig bool,
+	context *context.AUSFContext,
+) bool {
+	if !minConfig {
+		// first slice Created
+		if len(context.PlmnList) > 0 {
+			minConfig = true
+			ConfigPodTrigger <- true
+			logger.GrpcLog.Infoln("send config trigger to main routine first time config")
 		}
-		if !minConfig {
-			// first slice Created
-			if len(context.PlmnList) > 0 {
-				minConfig = true
-				ConfigPodTrigger <- true
-				logger.GrpcLog.Infoln("send config trigger to main routine first time config")
-			}
+	} else {
+		// all slices deleted
+		if len(context.PlmnList) == 0 {
+			minConfig = false
+			ConfigPodTrigger <- false
+			logger.GrpcLog.Infoln("send config trigger to main routine config deleted")
 		} else {
-			// all slices deleted
-			if len(context.PlmnList) == 0 {
-				minConfig = false
-				ConfigPodTrigger <- false
-				logger.GrpcLog.Infoln("send config trigger to main routine config deleted")
+			ConfigPodTrigger <- true
+			logger.GrpcLog.Infoln("send config trigger to main routine config updated")
+		}
+	}
+	return minConfig
+}
+
+func (ausf *AUSF) processNetworkSlices(
+	rsp *protos.NetworkSliceResponse,
+	context *context.AUSFContext,
+) {
+	for _, ns := range rsp.NetworkSlice {
+		logger.GrpcLog.Infoln("network Slice Name", ns.Name)
+		if ns.Site != nil {
+			temp := models.PlmnId{}
+			found := false
+			logger.GrpcLog.Infoln("network slice has site name present")
+			site := ns.Site
+			logger.GrpcLog.Infoln("site name", site.SiteName)
+			if site.Plmn != nil {
+				temp.Mcc = site.Plmn.Mcc
+				temp.Mnc = site.Plmn.Mnc
+				logger.GrpcLog.Infoln("plmn mcc", site.Plmn.Mcc)
+				for _, item := range context.PlmnList {
+					if item.Mcc == temp.Mcc && item.Mnc == temp.Mnc {
+						found = true
+						break
+					}
+				}
+				if !found {
+					context.PlmnList = append(context.PlmnList, temp)
+					logger.GrpcLog.Infoln("plmn added in the context", context.PlmnList)
+				}
 			} else {
-				ConfigPodTrigger <- true
-				logger.GrpcLog.Infoln("send config trigger to main routine config updated")
+				logger.GrpcLog.Infoln("plmn not present in the message ")
 			}
 		}
 	}
-	return true
 }
 
 func (ausf *AUSF) Start() {
@@ -424,14 +468,14 @@ func (ausf *AUSF) UpdateNF() {
 			// register with NRF full profile
 			nfProfile, err = ausf.BuildAndSendRegisterNFInstance()
 			if err != nil {
-				logger.InitLog.Errorf("AUSF register to NRF Error[%s]", err.Error())
+				logger.InitLog.Errorf(ausfRegisterNRFError, err.Error())
 			}
 		}
 	} else if err != nil {
 		logger.InitLog.Errorf("AUSF update to NRF Error[%s]", err.Error())
 		nfProfile, err = ausf.BuildAndSendRegisterNFInstance()
 		if err != nil {
-			logger.InitLog.Errorf("AUSF register to NRF Error[%s]", err.Error())
+			logger.InitLog.Errorf(ausfRegisterNRFError, err.Error())
 		}
 	}
 
@@ -447,21 +491,7 @@ func (ausf *AUSF) UpdateNF() {
 func (ausf *AUSF) RegisterNF() {
 	for msg := range ConfigPodTrigger {
 		if msg {
-			logger.InitLog.Infof("minimum configuration from config pod available %v", msg)
-			self := context.GetSelf()
-			profile, err := consumer.BuildNFInstance(self)
-			if err != nil {
-				logger.InitLog.Errorln("build AUSF Profile Error")
-			}
-			var prof models.NfProfile
-			prof, _, self.NfId, err = consumer.SendRegisterNFInstance(self.NrfUri, self.NfId, profile)
-			if err != nil {
-				logger.InitLog.Errorf("AUSF register to NRF Error[%s]", err.Error())
-			} else {
-				// stop keepAliveTimer if its running
-				ausf.StartKeepAliveTimer(prof)
-				logger.CfgLog.Infoln("sent Register NF Instance with updated profile")
-			}
+			ausf.handleRegisterNF(msg)
 		} else {
 			// stopping keepAlive timer
 			KeepAliveTimerMutex.Lock()
@@ -478,5 +508,23 @@ func (ausf *AUSF) RegisterNF() {
 				logger.InitLog.Infoln("deregister from NRF successfully")
 			}
 		}
+	}
+}
+
+func (ausf *AUSF) handleRegisterNF(msg bool) {
+	logger.InitLog.Infof("minimum configuration from config pod available %v", msg)
+	self := context.GetSelf()
+	profile, err := consumer.BuildNFInstance(self)
+	if err != nil {
+		logger.InitLog.Errorln("build AUSF Profile Error")
+	}
+	var prof models.NfProfile
+	prof, _, self.NfId, err = consumer.SendRegisterNFInstance(self.NrfUri, self.NfId, profile)
+	if err != nil {
+		logger.InitLog.Errorf(ausfRegisterNRFError, err.Error())
+	} else {
+		// stop keepAliveTimer if its running
+		ausf.StartKeepAliveTimer(prof)
+		logger.CfgLog.Infoln("sent Register NF Instance with updated profile")
 	}
 }

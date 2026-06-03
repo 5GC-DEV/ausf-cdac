@@ -19,6 +19,8 @@ import (
 	"github.com/omec-project/openapi/models"
 )
 
+const errServerNoResponse = "server no response"
+
 func BuildNFInstance(ausfContext *ausfContext.AUSFContext) (profile models.NfProfile, err error) {
 	profile.NfInstanceId = ausfContext.NfId
 	profile.NfType = models.NfType_AUSF
@@ -35,7 +37,7 @@ func BuildNFInstance(ausfContext *ausfContext.AUSFContext) (profile models.NfPro
 	ausfInfo.GroupId = ausfContext.GroupID
 	profile.AusfInfo = &ausfInfo
 	profile.PlmnList = &ausfContext.PlmnList
-	return
+	return profile, err
 }
 
 // func SendRegisterNFInstance(nrfUri, nfInstanceId string, profile models.NfProfile) (resouceNrfUri string,
@@ -104,7 +106,7 @@ func SendDeregisterNFInstance() (*models.ProblemDetails, error) {
 		problem := err.(openapi.GenericOpenAPIError).Model().(models.ProblemDetails)
 		return &problem, err
 	} else {
-		return nil, openapi.ReportError("server no response")
+		return nil, openapi.ReportError(errServerNoResponse)
 	}
 }
 
@@ -119,7 +121,7 @@ var SendUpdateNFInstance = func(patchItem []models.PatchItem) (nfProfile models.
 	var res *http.Response
 	nfProfile, res, err = client.NFInstanceIDDocumentApi.UpdateNFInstance(context.Background(), ausfSelf.NfId, patchItem)
 	if err == nil {
-		return
+		return nfProfile, problemDetails, err
 	} else if res != nil {
 		defer func() {
 			if resCloseErr := res.Body.Close(); resCloseErr != nil {
@@ -128,14 +130,14 @@ var SendUpdateNFInstance = func(patchItem []models.PatchItem) (nfProfile models.
 		}()
 		if res.Status != err.Error() {
 			logger.ConsumerLog.Errorf("UpdateNFInstance received error response: %v", res.Status)
-			return
+			return nfProfile, problemDetails, err
 		}
 		problem := err.(openapi.GenericOpenAPIError).Model().(models.ProblemDetails)
 		problemDetails = &problem
 	} else {
-		err = openapi.ReportError("server no response")
+		err = openapi.ReportError(errServerNoResponse)
 	}
-	return
+	return nfProfile, problemDetails, err
 }
 
 var SendCreateSubscription = func(nrfUri string, nrfSubscriptionData models.NrfSubscriptionData) (nrfSubData models.NrfSubscriptionData, problemDetails *models.ProblemDetails, err error) {
@@ -149,7 +151,7 @@ var SendCreateSubscription = func(nrfUri string, nrfSubscriptionData models.NrfS
 	var res *http.Response
 	nrfSubData, res, err = client.SubscriptionsCollectionApi.CreateSubscription(context.TODO(), nrfSubscriptionData)
 	if err == nil {
-		return
+		return nrfSubData, problemDetails, err
 	} else if res != nil {
 		defer func() {
 			if resCloseErr := res.Body.Close(); resCloseErr != nil {
@@ -158,14 +160,14 @@ var SendCreateSubscription = func(nrfUri string, nrfSubscriptionData models.NrfS
 		}()
 		if res.Status != err.Error() {
 			logger.ConsumerLog.Errorf("SendCreateSubscription received error response: %v", res.Status)
-			return
+			return nrfSubData, problemDetails, err
 		}
 		problem := err.(openapi.GenericOpenAPIError).Model().(models.ProblemDetails)
 		problemDetails = &problem
 	} else {
-		err = openapi.ReportError("server no response")
+		err = openapi.ReportError(errServerNoResponse)
 	}
-	return
+	return nrfSubData, problemDetails, err
 }
 
 var SendRemoveSubscription = func(subscriptionId string) (problemDetails *models.ProblemDetails, err error) {
@@ -180,7 +182,7 @@ var SendRemoveSubscription = func(subscriptionId string) (problemDetails *models
 
 	res, err = client.SubscriptionIDDocumentApi.RemoveSubscription(context.Background(), subscriptionId)
 	if err == nil {
-		return
+		return problemDetails, err
 	} else if res != nil {
 		defer func() {
 			if bodyCloseErr := res.Body.Close(); bodyCloseErr != nil {
@@ -188,12 +190,12 @@ var SendRemoveSubscription = func(subscriptionId string) (problemDetails *models
 			}
 		}()
 		if res.Status != err.Error() {
-			return
+			return problemDetails, err
 		}
 		problem := err.(openapi.GenericOpenAPIError).Model().(models.ProblemDetails)
 		problemDetails = &problem
 	} else {
-		err = openapi.ReportError("server no response")
+		err = openapi.ReportError(errServerNoResponse)
 	}
-	return
+	return problemDetails, err
 }

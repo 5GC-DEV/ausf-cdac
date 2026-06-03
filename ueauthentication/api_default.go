@@ -25,6 +25,14 @@ import (
 	"github.com/omec-project/util/httpwrapper"
 )
 
+const (
+	systemFailure          = "System failure"
+	getRequestBodyErr      = "Get Request Body error: %+v"
+	applicationJSON        = "application/json"
+	requestBodyLog         = "[Request Body] "
+	malformedRequestSyntax = "Malformed request syntax"
+)
+
 // HTTPEapAuthMethod -
 func HTTPEapAuthMethod(ctx *gin.Context) {
 	var eapSessionReq models.EapSession
@@ -32,21 +40,21 @@ func HTTPEapAuthMethod(ctx *gin.Context) {
 	requestBody, err := ctx.GetRawData()
 	if err != nil {
 		problemDetail := models.ProblemDetails{
-			Title:  "System failure",
+			Title:  systemFailure,
 			Status: http.StatusInternalServerError,
 			Detail: err.Error(),
 			Cause:  "SYSTEM_FAILURE",
 		}
-		logger.Auth5gAkaComfirmLog.Errorf("Get Request Body error: %+v", err)
+		logger.Auth5gAkaComfirmLog.Errorf(getRequestBodyErr, err)
 		ctx.JSON(http.StatusInternalServerError, problemDetail)
 		return
 	}
 
-	err = openapi.Deserialize(&eapSessionReq, requestBody, "application/json")
+	err = openapi.Deserialize(&eapSessionReq, requestBody, applicationJSON)
 	if err != nil {
-		problemDetail := "[Request Body] " + err.Error()
+		problemDetail := requestBodyLog + err.Error()
 		rsp := models.ProblemDetails{
-			Title:  "Malformed request syntax",
+			Title:  malformedRequestSyntax,
 			Status: http.StatusBadRequest,
 			Detail: problemDetail,
 		}
@@ -60,7 +68,7 @@ func HTTPEapAuthMethod(ctx *gin.Context) {
 
 	rsp := producer.HandleEapAuthComfirmRequest(req)
 
-	responseBody, err := openapi.Serialize(rsp.Body, "application/json")
+	responseBody, err := openapi.Serialize(rsp.Body, applicationJSON)
 	if err != nil {
 		logger.Auth5gAkaComfirmLog.Errorln(err)
 		problemDetails := models.ProblemDetails{
@@ -70,7 +78,7 @@ func HTTPEapAuthMethod(ctx *gin.Context) {
 		}
 		ctx.JSON(http.StatusInternalServerError, problemDetails)
 	} else {
-		ctx.Data(rsp.Status, "application/json", responseBody)
+		ctx.Data(rsp.Status, applicationJSON, responseBody)
 	}
 }
 
@@ -81,21 +89,21 @@ func HTTPUeAuthenticationsAuthCtxID5gAkaConfirmationPut(ctx *gin.Context) {
 	requestBody, err := ctx.GetRawData()
 	if err != nil {
 		problemDetail := models.ProblemDetails{
-			Title:  "System failure",
+			Title:  systemFailure,
 			Status: http.StatusInternalServerError,
 			Detail: err.Error(),
 			Cause:  "SYSTEM_FAILURE",
 		}
-		logger.Auth5gAkaComfirmLog.Errorf("Get Request Body error: %+v", err)
+		logger.Auth5gAkaComfirmLog.Errorf(getRequestBodyErr, err)
 		ctx.JSON(http.StatusInternalServerError, problemDetail)
 		return
 	}
 
-	err = openapi.Deserialize(&confirmationData, requestBody, "application/json")
+	err = openapi.Deserialize(&confirmationData, requestBody, applicationJSON)
 	if err != nil {
-		problemDetail := "[Request Body] " + err.Error()
+		problemDetail := requestBodyLog + err.Error()
 		rsp := models.ProblemDetails{
-			Title:  "Malformed request syntax",
+			Title:  malformedRequestSyntax,
 			Status: http.StatusBadRequest,
 			Detail: problemDetail,
 		}
@@ -109,7 +117,7 @@ func HTTPUeAuthenticationsAuthCtxID5gAkaConfirmationPut(ctx *gin.Context) {
 
 	rsp := producer.HandleAuth5gAkaComfirmRequest(req)
 
-	responseBody, err := openapi.Serialize(rsp.Body, "application/json")
+	responseBody, err := openapi.Serialize(rsp.Body, applicationJSON)
 	if err != nil {
 		logger.Auth5gAkaComfirmLog.Errorln(err)
 		problemDetails := models.ProblemDetails{
@@ -119,7 +127,7 @@ func HTTPUeAuthenticationsAuthCtxID5gAkaConfirmationPut(ctx *gin.Context) {
 		}
 		ctx.JSON(http.StatusInternalServerError, problemDetails)
 	} else {
-		ctx.Data(rsp.Status, "application/json", responseBody)
+		ctx.Data(rsp.Status, applicationJSON, responseBody)
 	}
 }
 
@@ -135,16 +143,16 @@ func HTTPUeAuthenticationsPost(ctx *gin.Context) {
 			Detail: err.Error(),
 			Cause:  "SYSTEM_FAILURE",
 		}
-		logger.UeAuthPostLog.Errorf("Get Request Body error: %+v", err)
+		logger.UeAuthPostLog.Errorf(getRequestBodyErr, err)
 		ctx.JSON(http.StatusInternalServerError, problemDetail)
 		return
 	}
 
-	err = openapi.Deserialize(&authInfo, requestBody, "application/json")
+	err = openapi.Deserialize(&authInfo, requestBody, applicationJSON)
 	if err != nil {
-		problemDetail := "[Request Body] " + err.Error()
+		problemDetail := requestBodyLog + err.Error()
 		rsp := models.ProblemDetails{
-			Title:  "Malformed request syntax",
+			Title:  malformedRequestSyntax,
 			Status: http.StatusBadRequest,
 			Detail: problemDetail,
 		}
@@ -160,7 +168,7 @@ func HTTPUeAuthenticationsPost(ctx *gin.Context) {
 	for key, value := range rsp.Header {
 		ctx.Header(key, value[0])
 	}
-	responseBody, err := openapi.Serialize(rsp.Body, "application/json")
+	responseBody, err := openapi.Serialize(rsp.Body, applicationJSON)
 	if err != nil {
 		logger.UeAuthPostLog.Errorln(err)
 		problemDetails := models.ProblemDetails{
@@ -170,6 +178,6 @@ func HTTPUeAuthenticationsPost(ctx *gin.Context) {
 		}
 		ctx.JSON(http.StatusInternalServerError, problemDetails)
 	} else {
-		ctx.Data(rsp.Status, "application/json", responseBody)
+		ctx.Data(rsp.Status, applicationJSON, responseBody)
 	}
 }
