@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/5GC-DEV/openapi-cdac/models"
 	"github.com/omec-project/ausf/logger"
-	"github.com/omec-project/openapi/models"
 )
 
 type AUSFContext struct {

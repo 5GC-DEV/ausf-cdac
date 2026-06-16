@@ -18,6 +18,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/5GC-DEV/openapi-cdac/models"
+	nrfCache "github.com/5GC-DEV/openapi-cdac/nrfcache"
 	"github.com/omec-project/ausf/callback"
 	"github.com/omec-project/ausf/consumer"
 	"github.com/omec-project/ausf/context"
@@ -27,8 +29,6 @@ import (
 	"github.com/omec-project/ausf/ueauthentication"
 	grpcClient "github.com/omec-project/config5g/proto/client"
 	protos "github.com/omec-project/config5g/proto/sdcoreConfig"
-	"github.com/omec-project/openapi/models"
-	nrfCache "github.com/omec-project/openapi/nrfcache"
 	"github.com/omec-project/util/http2_util"
 	utilLogger "github.com/omec-project/util/logger"
 	"github.com/urfave/cli/v3"

@@ -11,10 +11,10 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/5GC-DEV/openapi-cdac/models"
 	"github.com/google/uuid"
 	"github.com/omec-project/ausf/factory"
 	"github.com/omec-project/ausf/logger"
-	"github.com/omec-project/openapi/models"
 )
 
 func InitAusfContext(context *AUSFContext) {

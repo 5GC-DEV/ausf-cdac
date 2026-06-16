@@ -16,13 +16,13 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/5GC-DEV/openapi-cdac/models"
 	"github.com/bronze1man/radius"
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	ausf_context "github.com/omec-project/ausf/context"
 	"github.com/omec-project/ausf/logger"
 	stats "github.com/omec-project/ausf/metrics"
-	"github.com/omec-project/openapi/models"
 	"github.com/omec-project/util/httpwrapper"
 	"github.com/omec-project/util/ueauth"
 )

@@ -11,11 +11,11 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/5GC-DEV/openapi-cdac/Nnrf_NFDiscovery"
+	"github.com/5GC-DEV/openapi-cdac/models"
+	nrfCache "github.com/5GC-DEV/openapi-cdac/nrfcache"
 	ausfContext "github.com/omec-project/ausf/context"
 	"github.com/omec-project/ausf/logger"
-	"github.com/omec-project/openapi/Nnrf_NFDiscovery"
-	"github.com/omec-project/openapi/models"
-	nrfCache "github.com/omec-project/openapi/nrfcache"
 )
 
 var (

@@ -18,14 +18,14 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/5GC-DEV/openapi-cdac/Nnrf_NFDiscovery"
+	Nudm_UEAU "github.com/5GC-DEV/openapi-cdac/Nudm_UEAuthentication"
+	"github.com/5GC-DEV/openapi-cdac/models"
 	"github.com/antihax/optional"
 	"github.com/bronze1man/radius"
 	"github.com/omec-project/ausf/consumer"
 	ausf_context "github.com/omec-project/ausf/context"
 	"github.com/omec-project/ausf/logger"
-	"github.com/omec-project/openapi/Nnrf_NFDiscovery"
-	Nudm_UEAU "github.com/omec-project/openapi/Nudm_UEAuthentication"
-	"github.com/omec-project/openapi/models"
 )
 
 func KDF5gAka(param ...string) hash.Hash {
