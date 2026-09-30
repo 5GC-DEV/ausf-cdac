@@ -6,13 +6,12 @@
 package callback
 
 import (
-	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/omec-project/ausf/logger"
-	loggerUtil "github.com/omec-project/util/logger"
 )
+
+const applicationJSON = "application/json"
 
 // Route is the information for every URI.
 type Route struct {
@@ -28,13 +27,6 @@ type Route struct {
 
 // Routes is the list of the generated Route.
 type Routes []Route
-
-// NewRouter returns a new router.
-func NewRouter() *gin.Engine {
-	router := loggerUtil.NewGinWithZap(logger.GinLog)
-	AddService(router)
-	return router
-}
 
 func AddService(engine *gin.Engine) *gin.RouterGroup {
 	group := engine.Group("/nausf-callback/v1")
@@ -54,11 +46,6 @@ func AddService(engine *gin.Engine) *gin.RouterGroup {
 		}
 	}
 	return group
-}
-
-// Index is the index handler.
-func Index(c *gin.Context) {
-	c.String(http.StatusOK, "Hello World!")
 }
 
 var routes = Routes{

@@ -15,19 +15,27 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
-	"time"
 
-	"github.com/antihax/optional"
 	"github.com/omec-project/ausf/consumer"
 	ausfContext "github.com/omec-project/ausf/context"
 	"github.com/omec-project/ausf/factory"
 	"github.com/omec-project/ausf/producer"
 	"github.com/omec-project/ausf/service"
-	"github.com/omec-project/openapi/Nnrf_NFDiscovery"
-	"github.com/omec-project/openapi/models"
-	"github.com/stretchr/testify/assert"
+	"github.com/omec-project/openapi/v2"
+	"github.com/omec-project/openapi/v2/Nnrf_NFDiscovery"
+	"github.com/omec-project/openapi/v2/models"
+	"github.com/omec-project/openapi/v2/utils"
+)
+
+const (
+	httpVersion         = "HTTP/1.0"
+	udmURI2             = "https://20.20.13.1:8090"
+	nfTypeUDM           = "UDM"
+	httpStatus200OK     = "200 OK"
+	nfEventDeregistered = "NF_DEREGISTERED"
 )
 
 var (
@@ -45,40 +53,6 @@ func setupTest() {
 	}
 }
 
-func TestRegisterNF(t *testing.T) {
-	origRegisterNFInstance := consumer.SendRegisterNFInstance
-	origSearchNFInstances := consumer.SendSearchNFInstances
-	origUpdateNFInstance := consumer.SendUpdateNFInstance
-	defer func() {
-		consumer.SendRegisterNFInstance = origRegisterNFInstance
-		consumer.SendSearchNFInstances = origSearchNFInstances
-		consumer.SendUpdateNFInstance = origUpdateNFInstance
-	}()
-	t.Logf("test case TestRegisterNF")
-	var prof models.NfProfile
-	consumer.SendRegisterNFInstance = func(nrfUri string, nfInstanceId string, profile models.NfProfile) (models.NfProfile, string, string, error) {
-		prof = profile
-		prof.HeartBeatTimer = 1
-		t.Logf("test RegisterNFInstance called")
-		return prof, "", "", nil
-	}
-	consumer.SendSearchNFInstances = func(nrfUri string, targetNfType, requestNfType models.NfType, param *Nnrf_NFDiscovery.SearchNFInstancesParamOpts) (models.SearchResult, error) {
-		t.Logf("test SearchNFInstance called")
-		return models.SearchResult{}, nil
-	}
-	consumer.SendUpdateNFInstance = func(patchItem []models.PatchItem) (nfProfile models.NfProfile, problemDetails *models.ProblemDetails, err error) {
-		return prof, nil, nil
-	}
-	go AUSFTest.RegisterNF()
-	service.ConfigPodTrigger <- true
-	time.Sleep(5 * time.Second)
-	assert.Equal(t, service.KeepAliveTimer != nil, true)
-
-	service.ConfigPodTrigger <- false
-	time.Sleep(1 * time.Second)
-	assert.Equal(t, service.KeepAliveTimer == nil, true)
-}
-
 func TestGetUDMUri(t *testing.T) {
 	t.Logf("test cases for Get UDM URI")
 	callCountSearchNFInstances := 0
@@ -86,97 +60,51 @@ func TestGetUDMUri(t *testing.T) {
 	origNRFCacheSearchNFInstances := consumer.NRFCacheSearchNFInstances
 	origSendNfDiscoveryToNrf := consumer.SendNfDiscoveryToNrf
 	udmUri1 := "https://10.0.13.1:8090"
-	udmUri2 := "https://20.20.13.1:8090"
-	udmProfile1 := models.NfProfile{
-		UdmInfo: &models.UdmInfo{
-			RoutingIndicators: []string{},
-		},
-		NfInstanceId:  nfInstanceID,
-		Ipv4Addresses: []string{udmUri1},
-		NfType:        "UDM",
-		NfStatus:      "REGISTERED",
+	udmUri2 := udmURI2
+	udmInfo1 := models.NewUdmInfo()
+	udmProfile1 := models.NewNFProfileDiscovery(nfInstanceID, models.NFTYPE_UDM, models.NFSTATUS_REGISTERED)
+	udmProfile1.SetUdmInfo(*udmInfo1)
+	udmProfile1.SetIpv4Addresses([]string{udmUri1})
+	version1 := models.NewNFServiceVersion("versionUri", "1")
+	ipEndPoint1 := models.NewIpEndPoint()
+	ipEndPoint1.SetIpv4Address("10.0.13.1")
+	ipEndPoint1.SetTransport(models.TRANSPORTPROTOCOL_TCP)
+	ipEndPoint1.SetPort(8090)
+	service1 := models.NewNFService("datarepository", models.SERVICENAME_NUDM_UEAU, []models.NFServiceVersion{*version1}, models.URISCHEME_HTTPS, models.NFSERVICESTATUS_REGISTERED)
+	service1.SetApiPrefix(udmUri1)
+	service1.SetIpEndPoints([]models.IpEndPoint{*ipEndPoint1})
+	udmProfile1.SetNfServices([]models.NFService{*service1})
+	nfInstances1 := []models.NFProfileDiscovery{
+		*udmProfile1,
 	}
-	services1 := []models.NfService{
-		{
-			ServiceInstanceId: "datarepository",
-			ServiceName:       models.ServiceName_NUDM_UEAU,
-			Versions: &[]models.NfServiceVersion{
-				{
-					ApiFullVersion:  "1",
-					ApiVersionInUri: "versionUri",
-				},
-			},
-			Scheme:          "https",
-			NfServiceStatus: models.NfServiceStatus_REGISTERED,
-			ApiPrefix:       udmUri1,
-			IpEndPoints: &[]models.IpEndPoint{
-				{
-					Ipv4Address: "10.0.13.1",
-					Transport:   models.TransportProtocol_TCP,
-					Port:        8090,
-				},
-			},
-		},
+	searchResult1 := models.NewSearchResult(7, nfInstances1)
+	udmInfo2 := models.NewUdmInfo()
+	udmProfile2 := models.NewNFProfileDiscovery("9999-4343-43-434-343", models.NFTYPE_UDM, models.NFSTATUS_REGISTERED)
+	udmProfile2.SetUdmInfo(*udmInfo2)
+	udmProfile2.SetIpv4Addresses([]string{udmUri2})
+	version2 := models.NewNFServiceVersion("versionUri", "1")
+	ipEndPoint2 := models.NewIpEndPoint()
+	ipEndPoint2.SetIpv4Address("20.20.13.1")
+	ipEndPoint2.SetTransport(models.TRANSPORTPROTOCOL_TCP)
+	ipEndPoint2.SetPort(8090)
+	service2 := models.NewNFService("datarepository", models.SERVICENAME_NUDM_UEAU, []models.NFServiceVersion{*version2}, models.URISCHEME_HTTPS, models.NFSERVICESTATUS_REGISTERED)
+	service2.SetApiPrefix(udmUri2)
+	service2.SetIpEndPoints([]models.IpEndPoint{*ipEndPoint2})
+	udmProfile2.SetNfServices([]models.NFService{*service2})
+	nfInstances2 := []models.NFProfileDiscovery{
+		*udmProfile2,
 	}
-	udmProfile1.NfServices = &services1
-	nfInstances1 := []models.NfProfile{
-		udmProfile1,
-	}
-	searchResult1 := models.SearchResult{
-		ValidityPeriod:       7,
-		NfInstances:          nfInstances1,
-		NrfSupportedFeatures: "",
-	}
-	udmProfile2 := models.NfProfile{
-		UdmInfo: &models.UdmInfo{
-			RoutingIndicators: []string{},
-		},
-		NfInstanceId:  "9999-4343-43-434-343",
-		Ipv4Addresses: []string{udmUri2},
-		NfType:        "UDM",
-		NfStatus:      "REGISTERED",
-	}
-	services2 := []models.NfService{
-		{
-			ServiceInstanceId: "datarepository",
-			ServiceName:       models.ServiceName_NUDM_UEAU,
-			Versions: &[]models.NfServiceVersion{
-				{
-					ApiFullVersion:  "1",
-					ApiVersionInUri: "versionUri",
-				},
-			},
-			Scheme:          "https",
-			NfServiceStatus: models.NfServiceStatus_REGISTERED,
-			ApiPrefix:       udmUri2,
-			IpEndPoints: &[]models.IpEndPoint{
-				{
-					Ipv4Address: "20.20.13.1",
-					Transport:   models.TransportProtocol_TCP,
-					Port:        8090,
-				},
-			},
-		},
-	}
-	udmProfile2.NfServices = &services2
-	nfInstances2 := []models.NfProfile{
-		udmProfile2,
-	}
-	searchResult2 := models.SearchResult{
-		ValidityPeriod:       7,
-		NfInstances:          nfInstances2,
-		NrfSupportedFeatures: "",
-	}
+	searchResult2 := models.NewSearchResult(7, nfInstances2)
 	defer func() {
 		consumer.NRFCacheSearchNFInstances = origNRFCacheSearchNFInstances
 		consumer.SendNfDiscoveryToNrf = origSendNfDiscoveryToNrf
 	}()
-	consumer.NRFCacheSearchNFInstances = func(nrfUri string, targetNfType, requestNfType models.NfType, param *Nnrf_NFDiscovery.SearchNFInstancesParamOpts) (models.SearchResult, error) {
+	consumer.NRFCacheSearchNFInstances = func(ctx context.Context, nrfUri string, targetNfType, requestNfType models.NFType, param Nnrf_NFDiscovery.ApiSearchNFInstancesRequest) (*models.SearchResult, error) {
 		t.Logf("test SearchNFInstance called")
 		callCountSearchNFInstances++
 		return searchResult1, nil
 	}
-	consumer.SendNfDiscoveryToNrf = func(nrfUri string, targetNfType, requestNfType models.NfType, param *Nnrf_NFDiscovery.SearchNFInstancesParamOpts) (models.SearchResult, error) {
+	consumer.SendNfDiscoveryToNrf = func(ctx context.Context, nrfUri string, targetNfType, requestNfType models.NFType, configure consumer.SearchNFInstancesRequestConfigurer) (*models.SearchResult, error) {
 		t.Logf("test SendNfDiscoveryToNrf called")
 		callCountSendNfDiscovery++
 		return searchResult2, nil
@@ -201,7 +129,7 @@ func TestGetUDMUri(t *testing.T) {
 		{
 			"NRF caching is disabled request is sent to discover UDM",
 			"UDM URI is retrieved from NRF trough the NF discovery process",
-			"https://20.20.13.1:8090",
+			udmURI2,
 			false,
 			0,
 			1,
@@ -209,41 +137,95 @@ func TestGetUDMUri(t *testing.T) {
 	}
 	for i := range parameters {
 		t.Run(fmt.Sprintf("NRF caching is [%v]", parameters[i].inputEnableNrfCaching), func(t *testing.T) {
+			ausfContext.GetSelf().UdmUeauUrl = ""
 			ausfContext.GetSelf().EnableNrfCaching = parameters[i].inputEnableNrfCaching
 			udm_uri := producer.GetUdmUrl(ausfContext.GetSelf().NrfUri)
-			assert.Equal(t, parameters[i].expectedCallCountSearchNFInstances, callCountSearchNFInstances, "NF instance is searched in the cache.")
-			assert.Equal(t, parameters[i].expectedCallCountSendNfDiscovery, callCountSendNfDiscovery, "NF discovery request is sent to NRF.")
-			assert.Equal(t, parameters[i].udmUri, udm_uri, "UDR Uri is set.")
+			if callCountSearchNFInstances != parameters[i].expectedCallCountSearchNFInstances {
+				t.Errorf("NF instance search count mismatch. got = %d, want = %d (NF instance is searched in the cache)",
+					callCountSearchNFInstances, parameters[i].expectedCallCountSearchNFInstances)
+			}
+			if callCountSendNfDiscovery != parameters[i].expectedCallCountSendNfDiscovery {
+				t.Errorf("NF discovery request count mismatch. got = %d, want = %d (NF discovery request is sent to NRF)",
+					callCountSendNfDiscovery, parameters[i].expectedCallCountSendNfDiscovery)
+			}
+			if udm_uri != parameters[i].udmUri {
+				t.Errorf("UDM URI mismatch. got = %q, want = %q (UDR Uri is set)",
+					udm_uri, parameters[i].udmUri)
+			}
 			callCountSendNfDiscovery = 0
 			callCountSearchNFInstances = 0
 		})
 	}
 }
 
+func TestGetUDMUri_SkipsInstancesWithoutUsableEndpoints(t *testing.T) {
+	origSendSearchNFInstances := consumer.SendSearchNFInstances
+	origSendNfDiscoveryToNrf := consumer.SendNfDiscoveryToNrf
+	defer func() {
+		consumer.SendSearchNFInstances = origSendSearchNFInstances
+		consumer.SendNfDiscoveryToNrf = origSendNfDiscoveryToNrf
+	}()
+
+	consumer.SendSearchNFInstances = func(nrfUri string, targetNfType, requestNfType models.NFType,
+		configure consumer.SearchNFInstancesRequestConfigurer,
+	) (*models.SearchResult, error) {
+		invalidProfile := models.NFProfileDiscovery{
+			NfInstanceId: "empty-service-instance",
+			NfType:       models.NFTYPE_UDM,
+			NfStatus:     models.NFSTATUS_REGISTERED,
+			NfServices: []models.NFService{{
+				ServiceName: models.SERVICENAME_NUDM_UEAU,
+				Scheme:      models.URISCHEME_HTTPS,
+			}},
+		}
+		validProfile := models.NFProfileDiscovery{
+			NfInstanceId: "usable-instance",
+			NfType:       models.NFTYPE_UDM,
+			NfStatus:     models.NFSTATUS_REGISTERED,
+			NfServices: []models.NFService{{
+				ServiceName: models.SERVICENAME_NUDM_UEAU,
+				Scheme:      models.URISCHEME_HTTPS,
+				IpEndPoints: []models.IpEndPoint{{
+					Ipv4Address: openapi.PtrString("20.20.13.1"),
+					Port:        openapi.PtrInt32(8090),
+				}},
+			}},
+		}
+		return models.NewSearchResult(2, []models.NFProfileDiscovery{invalidProfile, validProfile}), nil
+	}
+	consumer.SendNfDiscoveryToNrf = func(ctx context.Context, nrfUri string, targetNfType, requestNfType models.NFType,
+		configure consumer.SearchNFInstancesRequestConfigurer,
+	) (*models.SearchResult, error) {
+		t.Fatal("did not expect direct NRF discovery fallback")
+		return nil, nil
+	}
+
+	ausfContext.GetSelf().UdmUeauUrl = ""
+	if got := producer.GetUdmUrl(ausfContext.GetSelf().NrfUri); got != udmURI2 {
+		t.Fatalf("unexpected UDM URL: got %q want %q", got, udmURI2)
+	}
+}
+
 func TestCreateSubscriptionSuccess(t *testing.T) {
 	t.Logf("test cases for CreateSubscription")
-	udmProfile := models.NfProfile{
+	udmProfile := models.NFProfileDiscovery{
 		UdmInfo: &models.UdmInfo{
 			RoutingIndicators: []string{},
 		},
 		NfInstanceId: nfInstanceID,
-		NfType:       "UDM",
+		NfType:       nfTypeUDM,
 		NfStatus:     "REGISTERED",
 	}
-	nfInstances := []models.NfProfile{
+	nfInstances := []models.NFProfileDiscovery{
 		udmProfile,
 	}
-	searchResult := models.SearchResult{
-		ValidityPeriod:       7,
-		NfInstances:          nfInstances,
-		NrfSupportedFeatures: "",
-	}
+	searchResult := models.NewSearchResult(7, nfInstances)
 	stringReader := strings.NewReader("successful!")
 	stringReadCloser := io.NopCloser(stringReader)
 	httpResponse := http.Response{
-		Status:     "200 OK",
+		Status:     httpStatus200OK,
 		StatusCode: 200,
-		Proto:      "HTTP/1.0",
+		Proto:      httpVersion,
 		ProtoMajor: 1,
 		ProtoMinor: 0,
 		Body:       stringReadCloser,
@@ -255,23 +237,22 @@ func TestCreateSubscriptionSuccess(t *testing.T) {
 		consumer.StoreApiSearchNFInstances = origStoreApiSearchNFInstances
 		consumer.CreateSubscription = origCreateSubscription
 	}()
-	consumer.StoreApiSearchNFInstances = func(*Nnrf_NFDiscovery.NFInstancesStoreApiService, context.Context, models.NfType, models.NfType, *Nnrf_NFDiscovery.SearchNFInstancesParamOpts) (models.SearchResult, *http.Response, error) {
+	consumer.StoreApiSearchNFInstances = func(*Nnrf_NFDiscovery.NFInstancesStoreAPIService, Nnrf_NFDiscovery.ApiSearchNFInstancesRequest) (*models.SearchResult, *http.Response, error) {
 		t.Logf("test SearchNFInstances called")
 		return searchResult, &httpResponse, nil
 	}
-	consumer.CreateSubscription = func(nrfUri string, nrfSubscriptionData models.NrfSubscriptionData) (nrfSubData models.NrfSubscriptionData, problemDetails *models.ProblemDetails, err error) {
+	consumer.CreateSubscription = func(nrfUri string, nrfSubscriptionData models.SubscriptionData) (nrfSubData *models.SubscriptionData, problemDetails *models.ProblemDetails, err error) {
 		t.Logf("test SendCreateSubscription called")
 		callCountSendCreateSubscription++
-		return models.NrfSubscriptionData{
-			NfStatusNotificationUri: "https://:0/nausf-callback/v1/nf-status-notify",
-			ReqNfType:               "AUSF",
-			SubscriptionId:          subscriptionID,
-		}, nil, nil
+		subscriptionData := models.NewSubscriptionData("https://:0/nausf-callback/v1/nf-status-notify")
+		subscriptionData.SetReqNfType("AUSF")
+		subscriptionData.SetSubscriptionId(subscriptionID)
+		return subscriptionData, nil, nil
 	}
 	// NRF caching is disabled
 	ausfContext.GetSelf().EnableNrfCaching = false
-	param := Nnrf_NFDiscovery.SearchNFInstancesParamOpts{
-		ServiceNames: optional.NewInterface([]models.ServiceName{models.ServiceName_NUDM_UEAU}),
+	configureSearchUDMRequest := func(request Nnrf_NFDiscovery.ApiSearchNFInstancesRequest) Nnrf_NFDiscovery.ApiSearchNFInstancesRequest {
+		return request.ServiceNames([]models.ServiceName{models.SERVICENAME_NUDM_UEAU})
 	}
 	parameters := []struct {
 		expectedError                           error
@@ -300,65 +281,88 @@ func TestCreateSubscriptionSuccess(t *testing.T) {
 	}
 	for i := range parameters {
 		t.Run(fmt.Sprintf("CreateSubscription testname %v result %v", parameters[i].testName, parameters[i].result), func(t *testing.T) {
-			_, err := consumer.SendNfDiscoveryToNrf("testNRFUri", "UDM", "AUSF", &param)
+			_, err := consumer.SendNfDiscoveryToNrf(context.Background(), "testNRFUri", nfTypeUDM, "AUSF", configureSearchUDMRequest)
 			val, _ := ausfContext.GetSelf().NfStatusSubscriptions.Load(parameters[i].nfInstanceId)
-			assert.Equal(t, val, parameters[i].subscriptionId, "Correct Subscription ID is not stored in the AUSF context.")
-			assert.Equal(t, parameters[i].expectedError, err, "SendNfDiscoveryToNrf is failed.")
-			// Subscription is created.
-			assert.Equal(t, parameters[i].expectedCallCountSendCreateSubscription, callCountSendCreateSubscription, "Subscription is not created for NF instance.")
+			if val != parameters[i].subscriptionId {
+				t.Errorf("Subscription ID mismatch. got = %v, want = %v (Correct Subscription ID is not stored in the AUSF context)",
+					val, parameters[i].subscriptionId)
+			}
+			if err != parameters[i].expectedError {
+				t.Errorf("SendNfDiscoveryToNrf error mismatch. got = %v, want = %v (SendNfDiscoveryToNrf is failed)",
+					err, parameters[i].expectedError)
+			}
+			if callCountSendCreateSubscription != parameters[i].expectedCallCountSendCreateSubscription {
+				t.Errorf("Subscription creation count mismatch. got = %d, want = %d (Subscription is not created for NF instance)",
+					callCountSendCreateSubscription, parameters[i].expectedCallCountSendCreateSubscription)
+			}
 			callCountSendCreateSubscription = 0
 		})
 	}
 }
 
+func TestSendNfDiscoveryToNrf_WhenSearchResultIsNil_ReturnsError(t *testing.T) {
+	origStoreApiSearchNFInstances := consumer.StoreApiSearchNFInstances
+	defer func() {
+		consumer.StoreApiSearchNFInstances = origStoreApiSearchNFInstances
+	}()
+
+	consumer.StoreApiSearchNFInstances = func(*Nnrf_NFDiscovery.NFInstancesStoreAPIService, Nnrf_NFDiscovery.ApiSearchNFInstancesRequest) (*models.SearchResult, *http.Response, error) {
+		return nil, &http.Response{
+			Status:     httpStatus200OK,
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader("{}")),
+		}, nil
+	}
+
+	result, err := consumer.SendNfDiscoveryToNrf(context.Background(), "testNRFUri", models.NFTYPE_UDM, models.NFTYPE_AUSF, nil)
+	if result != nil {
+		t.Fatalf("expected nil result, got %+v", result)
+	}
+	if err == nil || !strings.Contains(err.Error(), "nil result") {
+		t.Fatalf("expected nil result error, got %v", err)
+	}
+}
+
 func TestCreateSubscriptionFail(t *testing.T) {
 	t.Logf("test cases for CreateSubscription")
-	udmProfile := models.NfProfile{
+	udmProfile := models.NFProfileDiscovery{
 		UdmInfo: &models.UdmInfo{
 			RoutingIndicators: []string{},
 		},
 		NfInstanceId: "84343-4343-43-434-343",
-		NfType:       "UDM",
+		NfType:       nfTypeUDM,
 		NfStatus:     "REGISTERED",
 	}
-	nfInstances := []models.NfProfile{
+	nfInstances := []models.NFProfileDiscovery{
 		udmProfile,
 	}
-	searchResult := models.SearchResult{
-		ValidityPeriod:       7,
-		NfInstances:          nfInstances,
-		NrfSupportedFeatures: "",
-	}
+	searchResultPtr := models.NewSearchResult(7, nfInstances)
+	searchResult := *searchResultPtr
 	emptySearchResult := models.SearchResult{}
-	nrfSubscriptionData := models.NrfSubscriptionData{
-		NfStatusNotificationUri: "https://:0/nausf-callback/v1/nf-status-notify",
-		ReqNfType:               "AUSF",
-		SubscriptionId:          "",
-	}
-	emptyNrfSubscriptionData := models.NrfSubscriptionData{}
+	nrfSubscriptionDataPtr := models.NewSubscriptionData("https://:0/nausf-callback/v1/nf-status-notify")
+	nrfSubscriptionDataPtr.SetReqNfType("AUSF")
+	nrfSubscriptionDataPtr.SetSubscriptionId("")
+	nrfSubscriptionData := *nrfSubscriptionDataPtr
+	emptyNrfSubscriptionData := models.SubscriptionData{}
 	stringReader := strings.NewReader("successful!")
 	stringReadCloser := io.NopCloser(stringReader)
 	httpResponseTemporaryDirect := http.Response{
 		Status:     "307 Temporary Direct",
 		StatusCode: 307,
-		Proto:      "HTTP/1.0",
+		Proto:      httpVersion,
 		ProtoMajor: 1,
 		ProtoMinor: 0,
 		Body:       stringReadCloser,
 	}
 	httpResponseSuccess := http.Response{
-		Status:     "200 OK",
+		Status:     httpStatus200OK,
 		StatusCode: 200,
-		Proto:      "HTTP/1.0",
+		Proto:      httpVersion,
 		ProtoMajor: 1,
 		ProtoMinor: 0,
 		Body:       stringReadCloser,
 	}
-	serverErrorProblem := models.ProblemDetails{
-		Status: http.StatusInternalServerError,
-		Cause:  "Server Error",
-		Detail: "",
-	}
+	serverErrorProblem := *utils.ProblemDetailsSystemFailure("")
 	callCountSendCreateSubscription := 0
 	origStoreApiSearchNFInstances := consumer.StoreApiSearchNFInstances
 	origCreateSubscription := consumer.CreateSubscription
@@ -368,8 +372,8 @@ func TestCreateSubscriptionFail(t *testing.T) {
 	}()
 	// NRF caching is disabled
 	ausfContext.GetSelf().EnableNrfCaching = false
-	param := Nnrf_NFDiscovery.SearchNFInstancesParamOpts{
-		ServiceNames: optional.NewInterface([]models.ServiceName{models.ServiceName_NUDM_UEAU}),
+	configureSearchUDMRequest := func(request Nnrf_NFDiscovery.ApiSearchNFInstancesRequest) Nnrf_NFDiscovery.ApiSearchNFInstancesRequest {
+		return request.ServiceNames([]models.ServiceName{models.SERVICENAME_NUDM_UEAU})
 	}
 	parameters := []struct {
 		httpResponse                            http.Response
@@ -377,7 +381,7 @@ func TestCreateSubscriptionFail(t *testing.T) {
 		subscriptionError                       error
 		expectedError                           error
 		subscriptionProblem                     *models.ProblemDetails
-		nrfSubscriptionData                     models.NrfSubscriptionData
+		nrfSubscriptionData                     models.SubscriptionData
 		searchResult                            models.SearchResult
 		testName                                string
 		result                                  string
@@ -397,7 +401,7 @@ func TestCreateSubscriptionFail(t *testing.T) {
 		},
 		{
 			httpResponseSuccess,
-			"",
+			nil,
 			nil,
 			nil,
 			&serverErrorProblem,
@@ -409,7 +413,7 @@ func TestCreateSubscriptionFail(t *testing.T) {
 		},
 		{
 			httpResponseSuccess,
-			"",
+			nil,
 			errors.New("SendCreateSubscription request failed"),
 			errors.New("SendCreateSubscription request failed"),
 			nil,
@@ -434,21 +438,31 @@ func TestCreateSubscriptionFail(t *testing.T) {
 	}
 	for i := range parameters {
 		t.Run(fmt.Sprintf("CreateSubscription testname %v result %v", parameters[i].testName, parameters[i].result), func(t *testing.T) {
-			consumer.StoreApiSearchNFInstances = func(*Nnrf_NFDiscovery.NFInstancesStoreApiService, context.Context, models.NfType, models.NfType, *Nnrf_NFDiscovery.SearchNFInstancesParamOpts) (models.SearchResult, *http.Response, error) {
+			consumer.StoreApiSearchNFInstances = func(*Nnrf_NFDiscovery.NFInstancesStoreAPIService, Nnrf_NFDiscovery.ApiSearchNFInstancesRequest) (*models.SearchResult, *http.Response, error) {
 				t.Logf("test SearchNFInstances called")
-				return parameters[i].searchResult, &parameters[i].httpResponse, nil
+				return &parameters[i].searchResult, &parameters[i].httpResponse, nil
 			}
 
-			consumer.CreateSubscription = func(nrfUri string, nrfSubscriptionData models.NrfSubscriptionData) (nrfSubData models.NrfSubscriptionData, problemDetails *models.ProblemDetails, err error) {
+			consumer.CreateSubscription = func(nrfUri string, nrfSubscriptionData models.SubscriptionData) (nrfSubData *models.SubscriptionData, problemDetails *models.ProblemDetails, err error) {
 				t.Logf("test SendCreateSubscription called")
 				callCountSendCreateSubscription++
-				return parameters[i].nrfSubscriptionData, parameters[i].subscriptionProblem, parameters[i].subscriptionError
+				return &parameters[i].nrfSubscriptionData, parameters[i].subscriptionProblem, parameters[i].subscriptionError
 			}
-			_, err := consumer.SendNfDiscoveryToNrf("testNRFUri", "UDM", "AUSF", &param)
+			_, err := consumer.SendNfDiscoveryToNrf(context.Background(), "testNRFUri", nfTypeUDM, "AUSF", configureSearchUDMRequest)
 			val, _ := ausfContext.GetSelf().NfStatusSubscriptions.Load(udmProfile.NfInstanceId)
-			assert.Equal(t, val, parameters[i].expectedSubscriptionId, "Correct Subscription ID is not stored in the AUSF context.")
-			assert.Equal(t, parameters[i].expectedError, err, "SendNfDiscoveryToNrf is failed.")
-			assert.Equal(t, parameters[i].expectedCallCountSendCreateSubscription, callCountSendCreateSubscription, "Subscription is not created for NF instance.")
+			if val != parameters[i].expectedSubscriptionId {
+				t.Errorf("Subscription ID mismatch. got = %v, want = %v (Correct Subscription ID is not stored in the AUSF context)",
+					val, parameters[i].expectedSubscriptionId)
+			}
+			if (err != nil || parameters[i].expectedError != nil) &&
+				(err == nil || parameters[i].expectedError == nil || err.Error() != parameters[i].expectedError.Error()) {
+				t.Errorf("SendNfDiscoveryToNrf error mismatch. got = %v, want = %v (SendNfDiscoveryToNrf is failed)",
+					err, parameters[i].expectedError)
+			}
+			if callCountSendCreateSubscription != parameters[i].expectedCallCountSendCreateSubscription {
+				t.Errorf("Subscription creation count mismatch. got = %d, want = %d (Subscription is not created for NF instance)",
+					callCountSendCreateSubscription, parameters[i].expectedCallCountSendCreateSubscription)
+			}
 			callCountSendCreateSubscription = 0
 			ausfContext.GetSelf().NfStatusSubscriptions.Delete(udmProfile.NfInstanceId)
 		})
@@ -475,19 +489,15 @@ func TestNfSubscriptionStatusNotify(t *testing.T) {
 		callCountNRFCacheRemoveNfProfileFromNrfCache++
 		return true
 	}
-	udmProfile := models.NfProfileNotificationData{
+	udmProfile := models.NotificationDataAllOfNfProfile{
 		UdmInfo: &models.UdmInfo{
 			RoutingIndicators: []string{},
 		},
 		NfInstanceId: nfInstanceID,
-		NfType:       "UDM",
+		NfType:       nfTypeUDM,
 		NfStatus:     "DEREGISTERED",
 	}
-	badRequestProblem := models.ProblemDetails{
-		Status: http.StatusBadRequest,
-		Cause:  "MANDATORY_IE_MISSING",
-		Detail: "Missing IE [Event]/[NfInstanceUri] in NotificationData",
-	}
+	badRequestProblem := *utils.ProblemDetailsMandatoryIeMissing("Missing IE [Event]/[NfInstanceUri] in NotificationData")
 	parameters := []struct {
 		expectedProblem                                      *models.ProblemDetails
 		testName                                             string
@@ -499,6 +509,7 @@ func TestNfSubscriptionStatusNotify(t *testing.T) {
 		expectedCallCountSendRemoveSubscription              int
 		expectedCallCountNRFCacheRemoveNfProfileFromNrfCache int
 		enableNrfCaching                                     bool
+		wantUdmUrlCleared                                    bool
 	}{
 		{
 			nil,
@@ -507,9 +518,10 @@ func TestNfSubscriptionStatusNotify(t *testing.T) {
 			nfInstanceID,
 			nfInstanceID,
 			subscriptionID,
-			"NF_DEREGISTERED",
+			nfEventDeregistered,
 			1,
 			1,
+			true,
 			true,
 		},
 		{
@@ -519,9 +531,10 @@ func TestNfSubscriptionStatusNotify(t *testing.T) {
 			nfInstanceID,
 			"",
 			"",
-			"NF_DEREGISTERED",
+			nfEventDeregistered,
 			0,
 			1,
+			true,
 			true,
 		},
 		{
@@ -531,10 +544,11 @@ func TestNfSubscriptionStatusNotify(t *testing.T) {
 			nfInstanceID,
 			nfInstanceID,
 			subscriptionID,
-			"NF_DEREGISTERED",
+			nfEventDeregistered,
 			1,
 			0,
 			false,
+			true,
 		},
 		{
 			nil,
@@ -547,6 +561,7 @@ func TestNfSubscriptionStatusNotify(t *testing.T) {
 			0,
 			0,
 			true,
+			false,
 		},
 		{
 			nil,
@@ -555,9 +570,10 @@ func TestNfSubscriptionStatusNotify(t *testing.T) {
 			nfInstanceID,
 			nfInstanceID,
 			subscriptionID,
-			"NF_DEREGISTERED",
+			nfEventDeregistered,
 			1,
 			1,
+			true,
 			true,
 		},
 		{
@@ -567,10 +583,11 @@ func TestNfSubscriptionStatusNotify(t *testing.T) {
 			"",
 			"",
 			subscriptionID,
-			"NF_DEREGISTERED",
+			nfEventDeregistered,
 			0,
 			0,
 			true,
+			false,
 		},
 		{
 			&badRequestProblem,
@@ -583,10 +600,13 @@ func TestNfSubscriptionStatusNotify(t *testing.T) {
 			0,
 			0,
 			true,
+			false,
 		},
 	}
+	const cachedUdmUrl = "https://10.0.13.1:8090"
 	for i := range parameters {
 		t.Run(fmt.Sprintf("NfSubscriptionStatusNotify testname %v result %v", parameters[i].testName, parameters[i].result), func(t *testing.T) {
+			ausfContext.GetSelf().UdmUeauUrl = cachedUdmUrl
 			ausfContext.GetSelf().EnableNrfCaching = parameters[i].enableNrfCaching
 			ausfContext.GetSelf().NfStatusSubscriptions.Store(parameters[i].nfInstanceIdForSubscription, parameters[i].subscriptionID)
 			notificationData := models.NotificationData{
@@ -596,13 +616,28 @@ func TestNfSubscriptionStatusNotify(t *testing.T) {
 				ProfileChanges: []models.ChangeItem{},
 			}
 			err := producer.NfSubscriptionStatusNotifyProcedure(notificationData)
-			assert.Equal(t, parameters[i].expectedProblem, err, "NfSubscriptionStatusNotifyProcedure is failed.")
-			// Subscription is removed.
-			assert.Equal(t, parameters[i].expectedCallCountSendRemoveSubscription, callCountSendRemoveSubscription, "Subscription is not removed.")
-			// NF Profile is removed from NRF cache.
-			assert.Equal(t, parameters[i].expectedCallCountNRFCacheRemoveNfProfileFromNrfCache, callCountNRFCacheRemoveNfProfileFromNrfCache, "NF Profile is not removed from NRF cache.")
+			if !reflect.DeepEqual(err, parameters[i].expectedProblem) {
+				t.Errorf("NfSubscriptionStatusNotifyProcedure error mismatch. got = %+v, want = %+v (NfSubscriptionStatusNotifyProcedure is failed)",
+					err, parameters[i].expectedProblem)
+			}
+			if callCountSendRemoveSubscription != parameters[i].expectedCallCountSendRemoveSubscription {
+				t.Errorf("Subscription removal count mismatch. got = %d, want = %d (Subscription is not removed)",
+					callCountSendRemoveSubscription, parameters[i].expectedCallCountSendRemoveSubscription)
+			}
+			if callCountNRFCacheRemoveNfProfileFromNrfCache != parameters[i].expectedCallCountNRFCacheRemoveNfProfileFromNrfCache {
+				t.Errorf("NF Profile cache removal count mismatch. got = %d, want = %d (NF Profile is not removed from NRF cache)",
+					callCountNRFCacheRemoveNfProfileFromNrfCache, parameters[i].expectedCallCountNRFCacheRemoveNfProfileFromNrfCache)
+			}
+			gotUrl := ausfContext.GetSelf().UdmUeauUrl
+			if parameters[i].wantUdmUrlCleared && gotUrl != "" {
+				t.Errorf("UdmUeauUrl not cleared on UDM deregistration: got %q", gotUrl)
+			}
+			if !parameters[i].wantUdmUrlCleared && gotUrl != cachedUdmUrl {
+				t.Errorf("UdmUeauUrl should not have been cleared: got %q, want %q", gotUrl, cachedUdmUrl)
+			}
 			callCountSendRemoveSubscription = 0
 			callCountNRFCacheRemoveNfProfileFromNrfCache = 0
+			ausfContext.GetSelf().UdmUeauUrl = ""
 			ausfContext.GetSelf().NfStatusSubscriptions.Delete(parameters[i].nfInstanceIdForSubscription)
 		})
 	}

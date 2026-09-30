@@ -14,7 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/omec-project/ausf/factory"
 	"github.com/omec-project/ausf/logger"
-	"github.com/omec-project/openapi/models"
+	"github.com/omec-project/openapi/v2/models"
 )
 
 func InitAusfContext(context *AUSFContext) {
@@ -31,43 +31,11 @@ func InitAusfContext(context *AUSFContext) {
 	context.RegisterIPv4 = factory.AUSF_DEFAULT_IPV4               // default localhost
 	context.SBIPort = factory.AUSF_DEFAULT_PORT_INT                // default port
 	if sbi != nil {
-		if sbi.RegisterIPv4 != "" {
-			context.RegisterIPv4 = sbi.RegisterIPv4
-		}
-		if sbi.Port != 0 {
-			context.SBIPort = sbi.Port
-		}
-
-		if sbi.Scheme == "https" {
-			context.UriScheme = models.UriScheme_HTTPS
-		} else {
-			context.UriScheme = models.UriScheme_HTTP
-		}
-		if tls := sbi.TLS; tls != nil {
-			if tls.Key != "" {
-				context.Key = tls.Key
-			}
-			if tls.PEM != "" {
-				context.PEM = tls.PEM
-			}
-		}
-
-		context.BindingIPv4 = os.Getenv(sbi.BindingIPv4)
-		if context.BindingIPv4 != "" {
-			logger.InitLog.Infoln("parsing ServerIPv4 address from ENV Variable")
-		} else {
-			context.BindingIPv4 = sbi.BindingIPv4
-			if context.BindingIPv4 == "" {
-				logger.InitLog.Warnln("error parsing ServerIPv4 address as string. Using the 0.0.0.0 address as default")
-				context.BindingIPv4 = "0.0.0.0"
-			}
-		}
+		configureSbiSettings(context, sbi)
+		configureBindingIPv4(context, sbi)
 	}
 
 	context.Url = string(context.UriScheme) + "://" + context.RegisterIPv4 + ":" + strconv.Itoa(context.SBIPort)
-	if os.Getenv("MANAGED_BY_CONFIG_POD") != "true" {
-		context.PlmnList = append(context.PlmnList, configuration.PlmnSupportList...)
-	}
 	context.EnableNrfCaching = configuration.EnableNrfCaching
 	if configuration.EnableNrfCaching {
 		if configuration.NrfCacheEvictionInterval == 0 {
@@ -78,35 +46,75 @@ func InitAusfContext(context *AUSFContext) {
 	}
 
 	// context.NfService
-	context.NfService = make(map[models.ServiceName]models.NfService)
+	context.NfService = make(map[models.ServiceName]models.NFService)
 	AddNfServices(&context.NfService, &config, context)
 	logger.ContextLog.Infoln("ausf context:", context)
 }
 
-func AddNfServices(serviceMap *map[models.ServiceName]models.NfService, config *factory.Config, context *AUSFContext) {
-	var nfService models.NfService
+func configureSbiSettings(context *AUSFContext, sbi *factory.Sbi) {
+	if sbi.RegisterIPv4 != "" {
+		context.RegisterIPv4 = sbi.RegisterIPv4
+	}
+	if sbi.Port != 0 {
+		context.SBIPort = sbi.Port
+	}
+
+	switch sbi.Scheme {
+	case "https":
+		context.UriScheme = models.URISCHEME_HTTPS
+	case "", "http":
+		context.UriScheme = models.URISCHEME_HTTP
+	default:
+		logger.InitLog.Warnf("unsupported SBI scheme %q; defaulting to http", sbi.Scheme)
+		context.UriScheme = models.URISCHEME_HTTP
+	}
+	if tls := sbi.TLS; tls != nil {
+		if tls.Key != "" {
+			context.Key = tls.Key
+		}
+		if tls.PEM != "" {
+			context.PEM = tls.PEM
+		}
+	}
+}
+
+func configureBindingIPv4(context *AUSFContext, sbi *factory.Sbi) {
+	context.BindingIPv4 = os.Getenv(sbi.BindingIPv4)
+	if context.BindingIPv4 != "" {
+		logger.InitLog.Infoln("parsing ServerIPv4 address from ENV Variable")
+	} else {
+		context.BindingIPv4 = sbi.BindingIPv4
+		if context.BindingIPv4 == "" {
+			logger.InitLog.Warnln("error parsing ServerIPv4 address as string. Using the 0.0.0.0 address as default")
+			context.BindingIPv4 = "0.0.0.0"
+		}
+	}
+}
+
+func AddNfServices(serviceMap *map[models.ServiceName]models.NFService, config *factory.Config, context *AUSFContext) {
+	var nfService models.NFService
 	var ipEndPoints []models.IpEndPoint
-	var nfServiceVersions []models.NfServiceVersion
+	var nfServiceVersions []models.NFServiceVersion
 	services := *serviceMap
 
 	// nausf-auth
 	nfService.ServiceInstanceId = context.NfId
-	nfService.ServiceName = models.ServiceName_NAUSF_AUTH
+	nfService.ServiceName = models.SERVICENAME_NAUSF_AUTH
+	ipEndPoint := models.NewIpEndPoint()
+	ipEndPoint.SetIpv4Address(context.RegisterIPv4)
+	ipEndPoint.SetPort(int32(context.SBIPort))
 
-	var ipEndPoint models.IpEndPoint
-	ipEndPoint.Ipv4Address = context.RegisterIPv4
-	ipEndPoint.Port = int32(context.SBIPort)
-	ipEndPoints = append(ipEndPoints, ipEndPoint)
+	ipEndPoints = append(ipEndPoints, *ipEndPoint)
 
-	var nfServiceVersion models.NfServiceVersion
+	var nfServiceVersion models.NFServiceVersion
 	nfServiceVersion.ApiFullVersion = config.Info.Version
 	nfServiceVersion.ApiVersionInUri = "v1"
 	nfServiceVersions = append(nfServiceVersions, nfServiceVersion)
 
 	nfService.Scheme = context.UriScheme
-	nfService.NfServiceStatus = models.NfServiceStatus_REGISTERED
+	nfService.NfServiceStatus = models.NFSERVICESTATUS_REGISTERED
 
-	nfService.IpEndPoints = &ipEndPoints
-	nfService.Versions = &nfServiceVersions
-	services[models.ServiceName_NAUSF_AUTH] = nfService
+	nfService.IpEndPoints = ipEndPoints
+	nfService.Versions = nfServiceVersions
+	services[models.SERVICENAME_NAUSF_AUTH] = nfService
 }
