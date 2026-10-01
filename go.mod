@@ -3,7 +3,7 @@ module github.com/omec-project/ausf
 go 1.24.0
 
 require (
-	github.com/5GC-DEV/openapi-cdac v1.0.1-0.20260701094837-fcfd9c9aecfe
+	github.com/5GC-DEV/openapi-cdac v0.4.3
 	github.com/antihax/optional v1.0.0
 	github.com/bronze1man/radius v0.0.0-20190516032554-afd8baec892d
 	github.com/gin-gonic/gin v1.10.1
