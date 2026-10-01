@@ -17,12 +17,12 @@ package ueauthentication
 import (
 	"net/http"
 
+	"github.com/5GC-DEV/openapi-cdac"
+	"github.com/5GC-DEV/openapi-cdac/models"
+	"github.com/5GC-DEV/util-cdac/httpwrapper"
 	"github.com/gin-gonic/gin"
 	"github.com/omec-project/ausf/logger"
 	"github.com/omec-project/ausf/producer"
-	"github.com/omec-project/openapi"
-	"github.com/omec-project/openapi/models"
-	"github.com/omec-project/util/httpwrapper"
 )
 
 // HTTPEapAuthMethod -

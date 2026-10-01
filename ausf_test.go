@@ -19,14 +19,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/5GC-DEV/openapi-cdac/Nnrf_NFDiscovery"
+	"github.com/5GC-DEV/openapi-cdac/models"
 	"github.com/antihax/optional"
 	"github.com/omec-project/ausf/consumer"
 	ausfContext "github.com/omec-project/ausf/context"
 	"github.com/omec-project/ausf/factory"
 	"github.com/omec-project/ausf/producer"
 	"github.com/omec-project/ausf/service"
-	"github.com/omec-project/openapi/Nnrf_NFDiscovery"
-	"github.com/omec-project/openapi/models"
 	"github.com/stretchr/testify/assert"
 )
 
