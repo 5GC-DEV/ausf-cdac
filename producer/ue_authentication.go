@@ -17,14 +17,14 @@ import (
 	"strings"
 
 	"github.com/5GC-DEV/openapi-cdac/models"
+	"github.com/5GC-DEV/util-cdac/httpwrapper"
+	"github.com/5GC-DEV/util-cdac/ueauth"
 	"github.com/bronze1man/radius"
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	ausf_context "github.com/omec-project/ausf/context"
 	"github.com/omec-project/ausf/logger"
 	stats "github.com/omec-project/ausf/metrics"
-	"github.com/omec-project/util/httpwrapper"
-	"github.com/omec-project/util/ueauth"
 )
 
 const (
